@@ -4,7 +4,7 @@
 import { AgenticEnvironment, BaseParticipant, sendMessage } from "@mozaik-ai/core";
 import type { AgentRunner, RunResult, Exploration } from "./runner";
 import type { MemoryAdapter } from "./memory";
-import { cognify } from "./graph";
+import { cognify, graphContext } from "./graph";
 
 export interface TraceEvent {
   kind: string;
@@ -96,10 +96,14 @@ export class MemoryLibrarian {
 
   async injectFor(question: string): Promise<{ context: string; hitIds: string[] }> {
     const hits = await this.adapter.search(question, { project: this.project, limit: 5 });
-    return {
-      context: hits.map((h) => `- ${h.content}`).join("\n"),
-      hitIds: hits.map((h) => h.id).filter(Boolean),
-    };
+    const flat = hits.map((h) => `- ${h.content}`).join("\n");
+    // Graph-expand (GRAPH_COMPLETION): seed from the question + top hits so recall surfaces what CONNECTS
+    // to what the query is about, even with no shared keywords. No-op when the brain has no graph.
+    const seedText = `${question}\n${hits.map((h) => h.content).join("\n")}`;
+    const gc = await graphContext(this.adapter, this.project, seedText);
+    const context = [flat, gc.text].filter(Boolean).join("\n\n");
+    const hitIds = [...new Set([...hits.map((h) => h.id).filter(Boolean), ...gc.docIds])];
+    return { context, hitIds };
   }
 
   async capture(workerId: string, question: string, res: RunResult): Promise<string> {

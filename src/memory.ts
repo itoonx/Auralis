@@ -8,6 +8,10 @@ export interface Triplet {
   object: string;
 }
 
+export interface GraphEdge extends Triplet {
+  docId?: string; // the finding this edge came from
+}
+
 export interface SearchHit {
   id: string;
   content: string;
@@ -23,7 +27,7 @@ export interface MemoryAdapter {
   listDocs?(opts?: { tier?: string; project?: string; max?: number }): Promise<{ id: string; content: string; tier?: string }[]>;
   supersede?(oldId: string, newId: string, reason?: string): Promise<void>;
   relate?(docId: string, project: string, triplets: Triplet[]): Promise<void>; // store graph edges for a finding
-  graph?(entity: string, project?: string): Promise<{ edges: Triplet[]; entities: string[] }>; // 1-hop neighborhood
+  graph?(entity: string, project?: string): Promise<{ edges: GraphEdge[]; entities: string[] }>; // 1-hop neighborhood
   count?(): Promise<number>;
   reset?(): Promise<void>;
 }
@@ -41,7 +45,7 @@ export class NullMemoryAdapter implements MemoryAdapter {
   async relate(): Promise<void> {
     /* no shared brain: no graph */
   }
-  async graph(): Promise<{ edges: Triplet[]; entities: string[] }> {
+  async graph(): Promise<{ edges: GraphEdge[]; entities: string[] }> {
     return { edges: [], entities: [] };
   }
   async count(): Promise<number> {
@@ -116,7 +120,7 @@ export class OracleAdapter implements MemoryAdapter {
     if (!res.ok) throw new Error(`oracle relate ${res.status}: ${await res.text()}`);
   }
 
-  async graph(entity: string, project?: string): Promise<{ edges: Triplet[]; entities: string[] }> {
+  async graph(entity: string, project?: string): Promise<{ edges: GraphEdge[]; entities: string[] }> {
     const u = new URL("/api/graph", this.baseUrl);
     u.searchParams.set("entity", entity);
     if (project) u.searchParams.set("project", project);
@@ -124,7 +128,7 @@ export class OracleAdapter implements MemoryAdapter {
     if (!res.ok) throw new Error(`oracle graph ${res.status}`);
     const body = (await res.json()) as { edges?: any[]; entities?: string[] };
     return {
-      edges: (body.edges ?? []).map((e) => ({ subject: String(e.subject), predicate: String(e.predicate), object: String(e.object) })),
+      edges: (body.edges ?? []).map((e) => ({ subject: String(e.subject), predicate: String(e.predicate), object: String(e.object), docId: e.docId ? String(e.docId) : undefined })),
       entities: body.entities ?? [],
     };
   }
