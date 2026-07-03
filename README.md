@@ -43,6 +43,27 @@ participants that react to each other on a shared event bus, rather than followi
 The brain itself is **oracle-lite** — a tiny local service (Bun + SQLite full-text search). It's
 persistent, append-only, and fast enough that a finding is searchable the instant it's written.
 
+## The hard part isn't the model — it's the shared state
+
+Run one agent and it's easy. Run a *fleet* and you've quietly built a small distributed system: a
+dozen agents touching the same repo, and the whole thing lives or dies on the orchestration around
+them, not on which model is doing the typing.
+
+The classic trap is *accidental* shared state. Give each agent its own isolated worktree and you may
+find it can no longer see the `node_modules` — or the context, or the findings — that a sibling just
+produced. Isolation quietly removed the shared state everyone was leaning on, and it "worked on my
+machine" right up until it didn't.
+
+auralis takes the opposite stance: **shared state is explicit and persistent, never accidental.**
+Every agent reaches the same brain over HTTP and gets the same answer — whether it's isolated, in a
+separate process, or running tomorrow. Nothing important hides in a folder that isolation can silently
+take away. And coordination is reactive: the Sentry calls out when two agents wander into the same
+territory, and the Conductor hands each one what its predecessors already found.
+
+*Scope, honestly:* today auralis coordinates agents that **read and analyse** a codebase. Parallel
+**writing** — worktrees, clean merges, no lost work — is the adjacent problem it's built to grow into,
+not one it claims to have solved yet.
+
 ## What it can do — proven on live runs
 
 Every claim below was measured on real Claude Code runs (over auralis's own codebase), not asserted.
