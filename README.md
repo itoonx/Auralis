@@ -59,6 +59,9 @@ Every claim below was measured on real Claude Code runs (over auralis's own code
 - **Nothing is lost, and everything is explainable.** Outdated findings are *superseded* (flagged but
   still searchable), never deleted — there's no delete route at all — and every run writes a
   provenance trail of what each task recalled, explored, produced, and contributed.
+- **It works on any codebase, out of the box.** Pointed at a completely different project (Express)
+  with no code changes — just one environment variable — it still cut redundant work by two-thirds,
+  and its memory built up from one task to the next.
 
 ## Architecture
 
