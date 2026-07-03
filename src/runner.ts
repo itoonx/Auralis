@@ -1,6 +1,7 @@
 // Pluggable worker runtimes. ClaudeCodeRunner is the real one — it drives Claude Code via the Agent
-// SDK (reuses existing auth, no API key) and its tool_use stream IS our exploration log. StubRunner is
-// a deterministic stand-in for tests (no LLM, no network).
+// SDK (reuses existing auth, no API key) and its tool_use stream IS our exploration log. Optionally an
+// in-process "brain" MCP server is attached so the worker can pull/push the shared brain directly.
+// StubRunner is a deterministic stand-in for tests (no LLM, no network).
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 export interface Exploration {
@@ -23,21 +24,25 @@ function targetOf(name: string, input: any): string | undefined {
 }
 
 export class ClaudeCodeRunner implements AgentRunner {
-  constructor(private readonly opts: { cwd: string; maxTurns?: number }) {}
+  // `brain` is an in-process MCP server (from brainMcpServer). When set, the worker can call
+  // mcp__oracle__search / mcp__oracle__learn directly. MCP tool calls are NOT counted as exploration.
+  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown }) {}
 
   async run(prompt: string): Promise<RunResult> {
     const explored: Exploration[] = [];
     let result = "";
+    const options: any = {
+      cwd: this.opts.cwd,
+      allowedTools: ["Read", "Grep", "Glob"],
+      permissionMode: "acceptEdits",
+      maxTurns: this.opts.maxTurns ?? 12,
+    };
+    if (this.opts.brain) {
+      options.mcpServers = { oracle: this.opts.brain };
+      options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn"];
+    }
     try {
-      for await (const m of query({
-        prompt,
-        options: {
-          cwd: this.opts.cwd,
-          allowedTools: ["Read", "Grep", "Glob"],
-          permissionMode: "acceptEdits",
-          maxTurns: this.opts.maxTurns ?? 12,
-        } as any,
-      })) {
+      for await (const m of query({ prompt, options })) {
         const msg: any = m;
         if (msg.type === "assistant") {
           for (const block of msg.message?.content ?? []) {
@@ -51,8 +56,8 @@ export class ClaudeCodeRunner implements AgentRunner {
         }
       }
     } catch (err) {
-      // The agent hit its turn/budget cap or errored mid-run. The exploration we captured before the
-      // throw is exactly what the redundancy metric needs, so keep it and note the early stop.
+      // The agent hit its turn/budget cap or errored mid-run. The exploration captured before the
+      // throw is what the redundancy metric needs, so keep it and note the early stop.
       if (!result) result = `(worker stopped early: ${(err as Error).message})`;
     }
     return { result, explored };

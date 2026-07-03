@@ -16,18 +16,19 @@ const MAX_TURNS = Number(process.env.AURALIS_MAX_TURNS ?? 10);
 const PLAN_TURNS = Number(process.env.AURALIS_PLAN_TURNS ?? 6);
 const CONCURRENCY = Number(process.env.AURALIS_PARALLEL ?? 1);
 const RETRIES = Number(process.env.AURALIS_RETRIES ?? 1); // self-repair retries per task
+const WORKER_PULL = process.env.AURALIS_WORKER_PULL === "1"; // workers call the brain directly (MCP)
 const GOAL =
   process.env.AURALIS_GOAL ??
   "Understand this codebase end-to-end: its architecture, core modules, primary end-to-end flow, and error handling.";
 
 async function main() {
-  console.log(`target project: ${PROJECT_DIR}  ·  parallel=${CONCURRENCY}`);
+  console.log(`target project: ${PROJECT_DIR}  ·  parallel=${CONCURRENCY}  ·  worker-pull=${WORKER_PULL}`);
   const stop = await ensureOracle();
   try {
     console.log("· resolving tasks…");
     const nodes = await resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS);
     console.log(`${nodes.length} task(s), ${buildLevels(nodes).length} level(s): ${nodes.map((n) => n.id).join(", ")}`);
-    const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, out: OUT };
+    const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, workerPull: WORKER_PULL, out: OUT };
 
     console.log("▶ baseline (no shared memory)…");
     const base = await runFleet("baseline", new NullMemoryAdapter(), nodes, cfg);

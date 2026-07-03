@@ -9,6 +9,7 @@ import { ClaudeCodeRunner } from "./runner";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal } from "./planner";
+import { brainMcpServer } from "./brain-mcp";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -50,6 +51,7 @@ export interface FleetCfg {
   maxTurns: number;
   concurrency: number;
   maxRetries?: number; // self-repair retries per task (0 = off)
+  workerPull?: boolean; // attach the brain as an MCP tool the worker can call directly
   out?: string; // when set, write trace + provenance files
 }
 
@@ -64,8 +66,9 @@ export async function runFleet(
   auditor.join(env);
   const sentry = new Sentry();
   sentry.join(env);
+  const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project) : undefined;
   const makeWorker = (id: string) => {
-    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns }));
+    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain }));
     w.join(env);
     return w;
   };
