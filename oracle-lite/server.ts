@@ -1,7 +1,7 @@
-// oracle-lite — our own minimal shared-brain sidecar (PRD: memory lives behind a swappable adapter;
-// this is the re-implemented layer so auralis runs end-to-end without the external BUSL-1.1 Oracle).
-// Bun + bun:sqlite (FTS5). Append-only (no update/delete path). The FTS row is committed synchronously
-// inside /api/learn, so a subsequent /api/search sees it immediately — the read-after-write guarantee.
+// oracle-lite — our own minimal shared-brain sidecar. Bun + bun:sqlite (FTS5). VALUES LAYER: it is
+// APPEND-ONLY — there is no delete route and content is never removed. Obsolescence is expressed by
+// SUPERSESSION: /api/supersede flags an old doc as outdated (superseded_by) while keeping it fully
+// intact and searchable. The FTS row is committed synchronously inside /api/learn (read-after-write).
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 
@@ -16,7 +16,8 @@ if (process.env.ORACLE_RESET) {
   db.run("DROP TABLE IF EXISTS docs_fts;");
 }
 db.run(`CREATE TABLE IF NOT EXISTS docs (
-  id TEXT PRIMARY KEY, content TEXT NOT NULL, concepts TEXT, project TEXT, source TEXT, created_at TEXT
+  id TEXT PRIMARY KEY, content TEXT NOT NULL, concepts TEXT, project TEXT, source TEXT, created_at TEXT,
+  superseded_by TEXT, superseded_at TEXT, superseded_reason TEXT
 );`);
 db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, content, concepts);`);
 
@@ -24,13 +25,16 @@ const insDoc = db.query(
   "INSERT INTO docs (id, content, concepts, project, source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 );
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
+const supersedeStmt = db.query(
+  "UPDATE docs SET superseded_by = ?, superseded_at = ?, superseded_reason = ? WHERE id = ?",
+);
+const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
 const searchStmt = db.query(
-  `SELECT d.id AS id, d.content AS content, d.source AS source, bm25(docs_fts) AS rank
+  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by, bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
    WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?`,
 );
 
-// Mirror arra-oracle's sanitizeFtsQuery: unicode word tokens, dedup, cap 8, OR-joined — avoids FTS syntax errors.
 function sanitize(q: string): string {
   const toks = (q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter((t) => t.length > 1);
   const uniq = [...new Set(toks)].slice(0, 8);
@@ -49,6 +53,11 @@ const server = Bun.serve({
 
     if (url.pathname === "/health") return Response.json({ ok: true });
 
+    if (url.pathname === "/api/stats") {
+      const row = countStmt.get() as { c: number };
+      return Response.json({ count: row.c });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/learn") {
       const body = (await req.json().catch(() => ({}))) as any;
       const pattern = String(body?.pattern ?? "").trim();
@@ -60,6 +69,16 @@ const server = Bun.serve({
       return Response.json({ success: true, id, file: null, embedding: "skipped" });
     }
 
+    // Supersession, not deletion: flag the old doc as outdated; it stays intact and searchable.
+    if (req.method === "POST" && url.pathname === "/api/supersede") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const oldId = String(body?.oldId ?? "");
+      const newId = String(body?.newId ?? "");
+      if (!oldId || !newId) return Response.json({ error: "oldId and newId are required" }, { status: 400 });
+      supersedeStmt.run(newId, new Date().toISOString(), body?.reason ?? null, oldId);
+      return Response.json({ success: true, oldId, newId });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/search") {
       const q = url.searchParams.get("q") ?? "";
       const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") ?? 5)));
@@ -69,13 +88,15 @@ const server = Bun.serve({
         content: String(r.content).slice(0, 2000),
         type: "learning",
         source: r.source ?? "fts",
+        superseded_by: r.superseded_by ?? undefined,
         score: 1 / (1 + Math.max(0, Number(r.rank))),
       }));
       return Response.json({ results, total: results.length, query: q });
     }
 
+    // No DELETE route exists — the store is append-only by construction.
     return new Response("not found", { status: 404 });
   },
 });
 
-console.log(`oracle-lite (bun:sqlite FTS5) listening on http://localhost:${server.port}  db=${DB_PATH}`);
+console.log(`oracle-lite (bun:sqlite FTS5, append-only) listening on http://localhost:${server.port}  db=${DB_PATH}`);

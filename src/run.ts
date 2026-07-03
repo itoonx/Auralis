@@ -1,6 +1,7 @@
-// Live fleet harness (Milestone #2): boot the brain, have the Planner decompose one goal into a DAG,
-// then run the coordinated society twice (shared brain vs. baseline) with real Claude Code workers
-// over a target codebase, and report fleet redundancy reduction, reuse, and Sentry overlap warnings.
+// Live fleet harness (Milestone #2/#4): boot the brain, have the Planner decompose one goal into a
+// DAG, then run the coordinated society twice (shared brain vs. baseline) with real Claude Code
+// workers over a target codebase. Reports fleet redundancy reduction, reuse, Sentry overlap warnings,
+// and an auditable "why" provenance trail for the shared run.
 import { writeFileSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
@@ -9,6 +10,7 @@ import { OracleAdapter, NullMemoryAdapter, oracleReachable, type MemoryAdapter }
 import { ClaudeCodeRunner } from "./runner";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate } from "./conductor";
+import { explainProvenance } from "./audit";
 import { planGoal } from "./planner";
 import { buildLevels, type DagNode } from "./dag";
 import { fleetRedundantCount, reductionPct } from "./metrics";
@@ -51,6 +53,7 @@ async function runFleet(label: string, adapter: MemoryAdapter, nodes: DagNode[])
   const outcome = await coordinate(nodes, makeWorker, new MemoryLibrarian(adapter, PROJECT));
   mkdirSync(OUT, { recursive: true });
   writeFileSync(`${OUT}/trace-${label}.jsonl`, auditor.toJSONL());
+  writeFileSync(`${OUT}/provenance-${label}.json`, JSON.stringify(outcome.provenance, null, 2));
   writeFileSync(`${OUT}/fleet-${label}.json`, JSON.stringify({ outcome, warnings: sentry.warnings }, null, 2));
   return { outcome, warnings: sentry.warnings.length };
 }
@@ -74,14 +77,15 @@ async function main() {
     const sharedRed = fleetRedundantCount(shared.outcome.perWorker.map((w) => w.explored));
     const pct = reductionPct(baseRed, sharedRed);
 
-    console.log("\n─── auralis milestone #2 (live fleet) ───");
-    console.log(`plan: ${nodes.length} tasks`);
+    console.log("\n─── auralis fleet run ───");
     console.log(`baseline: fleet-redundant=${baseRed}, sentry overlap warnings=${base.warnings}`);
     console.log(`shared  : fleet-redundant=${sharedRed}, sentry overlap warnings=${shared.warnings}, reuses=${shared.outcome.reuses}`);
     console.log(`redundancy reduction: ${(pct * 100).toFixed(1)}%   (target ≥ 30%)`);
     console.log(`cross-task reuse via brain: ${shared.outcome.reuses}   (target ≥ 1)`);
+    console.log("\n" + explainProvenance(shared.outcome.provenance));
+
     const pass = pct >= 0.3 && shared.outcome.reuses >= 1;
-    console.log(pass ? "\n✅ milestone #2 met on live data" : `\n⚠️  not met this run — see ${OUT}`);
+    console.log(pass ? "\n✅ fleet coordination met on live data" : `\n⚠️  not met this run — see ${OUT}`);
     process.exitCode = pass ? 0 : 1;
   } finally {
     stop();
