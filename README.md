@@ -193,6 +193,7 @@ so auralis isn't tied to any one project. See `.env.example`.
 
 | Command | What it does |
 |---|---|
+| `pnpm run help` | print the usage guide — commands, settings, and a typical workflow |
 | `pnpm dev` | run the coordinated fleet over a repo (baseline vs shared brain) |
 | `pnpm persist` | prove cross-session recall across separate processes |
 | `pnpm values` | demonstrate append-only + supersession, never delete |
