@@ -116,6 +116,26 @@ Bitcoin note untouched — after which a search for *"how do we authenticate a u
 **vetted** finding first, with the superseded raws still present but ranked below it. Findings carry a
 `tier` (`raw` → `distilled`) so you can always tell hard-won consolidation from a first-pass note.
 
+## Knowledge graph: findings that connect, not just pile up
+
+A flat brain has a blind spot: two agents can write notes about the *same* module and nothing joins
+them — recall returns similar snippets, never the connected picture. **Cognify** (inspired by
+[cognee](https://github.com/topoteretes/cognee)) fixes that. It reads each finding, extracts
+**entity/relationship triplets**, and stores them as graph edges keyed by a normalized entity name — so
+every finding that mentions `auth/session.ts` links to the *same node*.
+
+```bash
+pnpm cognify                       # build the graph from raw findings (free deterministic heuristic)
+AURALIS_COGNIFY_LLM=1 pnpm cognify # let Claude Code extract real predicates (higher quality, costs)
+AURALIS_COGNIFY=1 pnpm dev         # cognify on ingest, as findings land during a fleet run
+```
+
+Proven on a live brain: two different workers each wrote a note touching `auth/session.ts`; after
+cognify, `GET /api/graph?entity=auth/session.ts` returned edges contributed by **both** findings joined
+at that one node — worker A's `login` edge and worker B's `SessionToken` edge, on the same entity. The
+graph is **additive and optional**: it sits alongside the flat FTS+vector store, extraction is off by
+default, and everything degrades to keyword+semantic recall when it's not enabled.
+
 ## What it can do — proven on live runs
 
 Every claim below was measured on real Claude Code runs (over auralis's own codebase), not asserted.
@@ -203,6 +223,7 @@ AURALIS_TRIALS=3 AURALIS_TASKS=benchmarks/core.json AURALIS_PROJECT_DIR=/path/to
 | `src/audit.ts` | turn a run's provenance into a plain-language "why" |
 | `src/decision.ts` | honest ADRs recorded into the brain — kept & superseded, never deleted |
 | `src/distill.ts` · `run-distill.ts` | cluster near-duplicate findings → one vetted finding, supersede the raws (`pnpm distill`) |
+| `src/graph.ts` · `run-cognify.ts` | cognify findings into entity/relationship edges — the brain as a graph (`pnpm cognify`) |
 | `src/embed-sidecar.ts` | Node sidecar serving real semantic embeddings (oracle-lite calls it) |
 | `src/run.ts` · `run-persist.ts` · `run-values.ts` | the three live demos |
 

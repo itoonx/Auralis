@@ -2,6 +2,12 @@
 // values layer surfaces here as optional supersede()/count(): the brain is append-only, so obsolete
 // findings are superseded (flagged), never deleted. NullMemoryAdapter is the no-shared-memory control.
 
+export interface Triplet {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
 export interface SearchHit {
   id: string;
   content: string;
@@ -16,6 +22,8 @@ export interface MemoryAdapter {
   learn(pattern: string, opts?: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled" }): Promise<{ id: string }>;
   listDocs?(opts?: { tier?: string; project?: string; max?: number }): Promise<{ id: string; content: string; tier?: string }[]>;
   supersede?(oldId: string, newId: string, reason?: string): Promise<void>;
+  relate?(docId: string, project: string, triplets: Triplet[]): Promise<void>; // store graph edges for a finding
+  graph?(entity: string, project?: string): Promise<{ edges: Triplet[]; entities: string[] }>; // 1-hop neighborhood
   count?(): Promise<number>;
   reset?(): Promise<void>;
 }
@@ -29,6 +37,12 @@ export class NullMemoryAdapter implements MemoryAdapter {
   }
   async supersede(): Promise<void> {
     /* no shared brain: nothing to supersede */
+  }
+  async relate(): Promise<void> {
+    /* no shared brain: no graph */
+  }
+  async graph(): Promise<{ edges: Triplet[]; entities: string[] }> {
+    return { edges: [], entities: [] };
   }
   async count(): Promise<number> {
     return 0;
@@ -90,6 +104,29 @@ export class OracleAdapter implements MemoryAdapter {
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`oracle supersede ${res.status}: ${await res.text()}`);
+  }
+
+  async relate(docId: string, project: string, triplets: Triplet[]): Promise<void> {
+    const res = await fetch(new URL("/api/relate", this.baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ docId, project, triplets }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`oracle relate ${res.status}: ${await res.text()}`);
+  }
+
+  async graph(entity: string, project?: string): Promise<{ edges: Triplet[]; entities: string[] }> {
+    const u = new URL("/api/graph", this.baseUrl);
+    u.searchParams.set("entity", entity);
+    if (project) u.searchParams.set("project", project);
+    const res = await fetch(u, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`oracle graph ${res.status}`);
+    const body = (await res.json()) as { edges?: any[]; entities?: string[] };
+    return {
+      edges: (body.edges ?? []).map((e) => ({ subject: String(e.subject), predicate: String(e.predicate), object: String(e.object) })),
+      entities: body.entities ?? [],
+    };
   }
 
   async count(): Promise<number> {

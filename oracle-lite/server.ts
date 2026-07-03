@@ -16,6 +16,7 @@ db.run("PRAGMA journal_mode = WAL;");
 if (process.env.ORACLE_RESET) {
   db.run("DROP TABLE IF EXISTS docs;");
   db.run("DROP TABLE IF EXISTS docs_fts;");
+  db.run("DROP TABLE IF EXISTS edges;");
 }
 db.run(`CREATE TABLE IF NOT EXISTS docs (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, concepts TEXT, project TEXT, source TEXT, created_at TEXT,
@@ -23,12 +24,21 @@ db.run(`CREATE TABLE IF NOT EXISTS docs (
 );`);
 db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, content, concepts);`);
 try { db.run("ALTER TABLE docs ADD COLUMN tier TEXT DEFAULT 'raw';"); } catch { /* column already exists */ }
+// Graph layer: entity/relationship triplets extracted from findings (the 'cognify' step). Additive —
+// the brain is a graph AND a flat doc store. subj_key/obj_key are normalized so 'same key = same node'.
+db.run(`CREATE TABLE IF NOT EXISTS edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT, predicate TEXT, object TEXT,
+  subj_key TEXT, obj_key TEXT, doc_id TEXT, project TEXT, created_at TEXT
+);`);
 
 const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier) VALUES (?, ?, ?, ?, ?, ?, ?)");
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
 const supersedeStmt = db.query("UPDATE docs SET superseded_by = ?, superseded_at = ?, superseded_reason = ? WHERE id = ?");
 const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
 const getDocStmt = db.query("SELECT id, content, source, superseded_by FROM docs WHERE id = ?");
+const insEdge = db.query("INSERT INTO edges (subject, predicate, object, subj_key, obj_key, doc_id, project, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+const edgeCountStmt = db.query("SELECT COUNT(*) AS c FROM edges");
+const nodeCountStmt = db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges UNION SELECT obj_key FROM edges)");
 const searchStmt = db.query(
   `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by, bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
@@ -43,6 +53,10 @@ function sanitize(q: string): string {
 function idFrom(content: string): string {
   const slug = content.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   return `learning_${Date.now()}_${slug}`.slice(0, 90);
+}
+// Entity resolution: normalize an entity name to a node key. ponytail: string match; embeddings later.
+function normKey(s: string): string {
+  return s.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
 // ---- embeddings: semantic via the Node sidecar (ORACLE_EMBED_URL) with a built-in fallback ----
@@ -167,7 +181,9 @@ const server = Bun.serve({
     if (url.pathname === "/health") return Response.json({ ok: true, vectors: vectorsOn, embedder });
     if (url.pathname === "/api/stats") {
       const row = countStmt.get() as { c: number };
-      return Response.json({ count: row.c, vectors: vectorsOn, embedder });
+      const e = edgeCountStmt.get() as { c: number };
+      const n = nodeCountStmt.get() as { c: number };
+      return Response.json({ count: row.c, edges: e.c, nodes: n.c, vectors: vectorsOn, embedder });
     }
 
     if (req.method === "POST" && url.pathname === "/api/learn") {
@@ -180,6 +196,26 @@ const server = Bun.serve({
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
       return Response.json({ success: true, id, embedding: vectorsOn ? embedder : "fts-only" });
+    }
+
+    // Graph edges from a finding (posted by the cognify step, separate from learn so slow/optional
+    // extraction never blocks learn's synchronous read-after-write).
+    if (req.method === "POST" && url.pathname === "/api/relate") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const docId = String(body?.docId ?? "");
+      const project = body?.project ?? null;
+      const triplets = Array.isArray(body?.triplets) ? body.triplets : [];
+      const now = new Date().toISOString();
+      let added = 0;
+      for (const t of triplets) {
+        const subj = String(t?.subject ?? "").trim();
+        const obj = String(t?.object ?? "").trim();
+        const pred = String(t?.predicate ?? "relates-to").trim() || "relates-to";
+        if (!subj || !obj) continue;
+        insEdge.run(subj, pred, obj, normKey(subj), normKey(obj), docId, project, now);
+        added++;
+      }
+      return Response.json({ success: true, added });
     }
 
     if (req.method === "POST" && url.pathname === "/api/supersede") {
@@ -195,6 +231,7 @@ const server = Bun.serve({
     if (req.method === "POST" && url.pathname === "/api/reset" && process.env.ORACLE_ALLOW_RESET) {
       db.run("DELETE FROM docs;");
       db.run("DELETE FROM docs_fts;");
+      db.run("DELETE FROM edges;");
       await vectorReset();
       return Response.json({ success: true, reset: true });
     }
@@ -210,6 +247,21 @@ const server = Bun.serve({
       sql += " LIMIT ?"; params.push(max);
       const rows = db.query(sql).all(...params) as any[];
       return Response.json({ docs: rows.map((r) => ({ id: r.id, content: r.content, tier: r.tier ?? "raw" })) });
+    }
+
+    // 1-hop neighborhood of an entity: every edge touching its normalized key + connected entities.
+    if (req.method === "GET" && url.pathname === "/api/graph") {
+      const entity = url.searchParams.get("entity") ?? "";
+      const project = url.searchParams.get("project");
+      const key = normKey(entity);
+      let sql = "SELECT subject, predicate, object, doc_id FROM edges WHERE (subj_key = ? OR obj_key = ?)";
+      const params: any[] = [key, key];
+      if (project) { sql += " AND project = ?"; params.push(project); }
+      sql += " ORDER BY id";
+      const rows = db.query(sql).all(...params) as any[];
+      const edges = rows.map((r) => ({ subject: r.subject, predicate: r.predicate, object: r.object, docId: r.doc_id }));
+      const entities = [...new Set(edges.flatMap((e) => [e.subject, e.object]))];
+      return Response.json({ entity, edges, entities });
     }
 
     if (req.method === "GET" && url.pathname === "/api/search") {

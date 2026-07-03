@@ -13,7 +13,8 @@
     "bench": "tsx src/bench.ts",
     "decisions": "tsx src/decisions.ts",
     "embed": "tsx src/embed-sidecar.ts",
-    "distill": "tsx src/run-distill.ts"
+    "distill": "tsx src/run-distill.ts",
+    "cognify": "tsx src/run-cognify.ts"
   },
   "keywords": [],
   "author": "",

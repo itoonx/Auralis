@@ -4,6 +4,7 @@
 import { AgenticEnvironment, BaseParticipant, sendMessage } from "@mozaik-ai/core";
 import type { AgentRunner, RunResult, Exploration } from "./runner";
 import type { MemoryAdapter } from "./memory";
+import { cognify } from "./graph";
 
 export interface TraceEvent {
   kind: string;
@@ -112,6 +113,10 @@ export class MemoryLibrarian {
       source: `auralis:worker:${workerId}`,
     });
     if (id) this.learnedIds.push(id);
+    // Graph memory (opt-in, best-effort): turn the finding into entity/relationship edges. Never breaks capture.
+    if (id && process.env.AURALIS_COGNIFY === "1") {
+      try { await cognify(this.adapter, id, this.project, res.result); } catch { /* graph is best-effort */ }
+    }
     return id;
   }
 }
