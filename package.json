@@ -17,7 +17,8 @@
     "cognify": "tsx src/run-cognify.ts",
     "recall": "tsx src/run-recall.ts",
     "help": "tsx src/help.ts",
-    "analyze": "tsx src/run-analyze.ts"
+    "analyze": "tsx src/run-analyze.ts",
+    "bench-graph": "tsx src/run-bench-graph.ts"
   },
   "keywords": [],
   "author": "",
