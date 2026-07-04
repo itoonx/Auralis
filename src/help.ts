@@ -20,10 +20,13 @@ ${cmd("pnpm test", "offline proofs of the mechanics + a live memory check")}
   ${dim("AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm dev")}
 
 ${b("COMMANDS")}
+ ${dim("— analyse & answer —")}
+${cmd('pnpm analyze "<goal>"', "run the society once, then answer from graph-aware recall (quality on)")}
  ${dim("— run the fleet —")}
 ${cmd("pnpm dev", "analyse a repo (baseline vs shared brain) + a “why” trail")}
 ${cmd("pnpm persist", "prove cross-session recall across separate processes")}
 ${cmd("pnpm bench", "run the experiment N times, report mean ± spread")}
+${cmd("pnpm bench-graph", "measure how much recall the graph adds over flat search")}
  ${dim("— the brain —")}
 ${cmd('pnpm recall "<query>"', "what recall hands a worker: flat findings + graph neighborhood")}
 ${cmd("pnpm cognify", "build the knowledge graph from findings (entity/relationship edges)")}
@@ -45,14 +48,14 @@ ${setting("AURALIS_GOAL", "the analysis goal for pnpm dev")}
 ${setting("AURALIS_SEMANTIC=1", "real sentence-embedding recall (starts the embed sidecar)")}
 ${setting("AURALIS_PARALLEL=3", "run each DAG level concurrently (faster; less sharing)")}
 ${setting("AURALIS_COGNIFY=1", "build the graph on ingest during pnpm dev")}
-${setting("AURALIS_COGNIFY_LLM=1", "cognify with Claude Code for real predicates (costs)")}
+${setting("AURALIS_COGNIFY_LLM", "real predicates via Claude Code — ON by default; =0 for heuristic")}
 ${setting("AURALIS_DISTILL_LLM=1", "distill with Claude Code for real merges (costs)")}
 
-${b("TYPICAL WORKFLOW")} ${dim("— analyse a repo, for real")}
-  ${dim("1.")} AURALIS_SEMANTIC=1 AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm dev
-  ${dim("2.")} AURALIS_PROJECT=myrepo pnpm cognify                    ${dim("# build the graph")}
-  ${dim("3.")} AURALIS_PROJECT=myrepo pnpm recall "how does X work"   ${dim("# graph-aware recall")}
-  ${dim("4.")} AURALIS_PROJECT=myrepo pnpm distill                    ${dim("# keep the brain sharp over time")}
+${b("TYPICAL WORKFLOW")} ${dim("— the short path")}
+  ${dim("•")} AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm analyze "how does auth work?"
+    ${dim("↳ runs the fleet once, builds the graph, answers from graph-aware recall (quality on by default)")}
+  ${dim("— or step by step —")}
+  ${dim("1.")} …pnpm dev   ${dim("2.")} pnpm cognify   ${dim("3.")} pnpm recall "<q>"   ${dim("4.")} pnpm distill
 
 ${b("DOCS")}  README.md ${dim("(full walkthrough)")}  ·  .env.example ${dim("(every setting + default)")}
 `);

@@ -194,10 +194,12 @@ so auralis isn't tied to any one project. See `.env.example`.
 | Command | What it does |
 |---|---|
 | `pnpm run help` | print the usage guide — commands, settings, and a typical workflow |
+| `pnpm analyze "<goal>"` | **the short path** — run the society once, then answer from graph-aware recall (quality on) |
 | `pnpm dev` | run the coordinated fleet over a repo (baseline vs shared brain) |
 | `pnpm persist` | prove cross-session recall across separate processes |
 | `pnpm values` | demonstrate append-only + supersession, never delete |
 | `pnpm bench` | run the experiment N times, report mean ± spread |
+| `pnpm bench-graph` | measure how much recall the graph adds over flat search |
 | `pnpm distill` | consolidate near-duplicate findings into vetted ones |
 | `pnpm cognify` | build the knowledge graph from findings |
 | `pnpm recall "<q>"` | show what recall hands a worker: flat findings + the graph neighborhood |
@@ -245,10 +247,11 @@ AURALIS_TRIALS=3 AURALIS_TASKS=benchmarks/core.json AURALIS_PROJECT_DIR=/path/to
 - **The heuristic paths are shallow by design.** Distillation clustering, graph extraction, and the Critic
   all ship a free deterministic heuristic and an optional Claude Code path (`*_LLM=1`) for real quality.
   The heuristics keep everything offline-safe and CI-green; reach for the LLM path when the output matters.
-- **The knowledge graph is used in recall (M2), but still early.** Recall now blends flat search with a
-  graph-neighborhood expansion (a concept inspired by cognee — auralis doesn't use or depend on cognee).
-  Entity resolution is still string-match, so aliases/casings can fragment nodes; smarter resolution and
-  a measured benchmark are the next steps.
+- **The knowledge graph is used in recall, with fuzzy entity resolution.** Recall blends flat search
+  with a graph-neighborhood expansion (a concept inspired by cognee — auralis doesn't use or depend on
+  cognee), and entity lookup expands to basename/stem variants so different forms of a name resolve
+  together. `pnpm bench-graph` quantifies the uplift (100% on the sample corpus — directional). Deeper
+  embedding-based entity resolution is the next refinement.
 - **Read-and-analyse, not write.** auralis coordinates reading. Parallel writing/merges is deliberately out
   of scope for now.
 
