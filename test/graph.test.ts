@@ -1,7 +1,7 @@
 // Graph memory: findings become entity/relationship triplets, and two findings that mention the SAME
 // entity both contribute edges to that entity's node (cross-finding linkage — the milestone outcome).
 import { describe, it, expect } from "vitest";
-import { normalizeEntity, extractTriplets, cognify } from "../src/graph";
+import { normalizeEntity, extractTriplets, buildGraph } from "../src/graph";
 import type { MemoryAdapter, Triplet, SearchHit } from "../src/memory";
 
 describe("normalizeEntity", () => {
@@ -39,15 +39,15 @@ class FakeAdapter implements MemoryAdapter {
   }
 }
 
-describe("cognify linkage", () => {
+describe("buildGraph linkage", () => {
   it("links two findings that mention the same entity to one node", async () => {
     const a = new FakeAdapter();
     const stub = (text: string): Triplet[] =>
       text.includes("password")
         ? [{ subject: "password", predicate: "checked-in", object: "auth/session.ts" }]
         : [{ subject: "cookie", predicate: "set-by", object: "auth/session.ts" }];
-    await cognify(a, "doc_1", "p", "login validates the password", { extract: stub });
-    await cognify(a, "doc_2", "p", "issues a session cookie", { extract: stub });
+    await buildGraph(a, "doc_1", "p", "login validates the password", { extract: stub });
+    await buildGraph(a, "doc_2", "p", "issues a session cookie", { extract: stub });
 
     const g = await a.graph("auth/session.ts");
     expect(g.edges.length).toBe(2);

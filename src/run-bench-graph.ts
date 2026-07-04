@@ -1,9 +1,9 @@
 // `pnpm bench-graph` — reproducible M3 benchmark. Boots an ISOLATED scratch brain (own port + db, so it
-// never touches your real brain), seeds a small known corpus, cognifies (free heuristic — deterministic),
+// never touches your real brain), seeds a small known corpus, builds the graph from (free heuristic — deterministic),
 // then reports how much recall the graph adds over flat search on relationship queries.
 import { spawn } from "node:child_process";
 import { OracleAdapter, oracleReachable } from "./memory";
-import { cognify, extractTriplets } from "./graph";
+import { buildGraph, extractTriplets } from "./graph";
 import { measureGraphRecall } from "./bench-graph";
 
 const PORT = Number(process.env.AURALIS_BENCH_PORT ?? 47780); // off the default 47778
@@ -45,7 +45,7 @@ async function main() {
     const adapter = new OracleAdapter(BASE);
     for (const pattern of CORPUS) await adapter.learn(pattern, { project: "bench" });
     const docs = (await adapter.listDocs?.({ project: "bench", max: 100 })) ?? [];
-    for (const d of docs) await cognify(adapter, d.id, "bench", d.content, { extract: extractTriplets });
+    for (const d of docs) await buildGraph(adapter, d.id, "bench", d.content, { extract: extractTriplets });
 
     const report = await measureGraphRecall(adapter, "bench", QUERIES);
     console.log("\n─── graph-recall benchmark (M3) ───");

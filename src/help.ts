@@ -29,7 +29,7 @@ ${cmd("pnpm bench", "run the experiment N times, report mean ± spread")}
 ${cmd("pnpm bench-graph", "measure how much recall the graph adds over flat search")}
  ${dim("— the brain —")}
 ${cmd('pnpm recall "<query>"', "what recall hands a worker: flat findings + graph neighborhood")}
-${cmd("pnpm cognify", "build the knowledge graph from findings (entity/relationship edges)")}
+${cmd("pnpm build-graph", "build the knowledge graph from findings (entity/relationship edges)")}
 ${cmd("pnpm distill", "consolidate near-duplicate findings into vetted ones")}
 ${cmd("pnpm decisions", "print the honest ADR log from the brain")}
 ${cmd("pnpm values", "show append-only + supersession (never deletes)")}
@@ -47,15 +47,15 @@ ${setting("AURALIS_PROJECT", "brain namespace — recall is scoped to it; use on
 ${setting("AURALIS_GOAL", "the analysis goal for pnpm dev")}
 ${setting("AURALIS_SEMANTIC=1", "real sentence-embedding recall (starts the embed sidecar)")}
 ${setting("AURALIS_PARALLEL=3", "run each DAG level concurrently (faster; less sharing)")}
-${setting("AURALIS_COGNIFY=1", "build the graph on ingest during pnpm dev")}
-${setting("AURALIS_COGNIFY_LLM", "real predicates via Claude Code — ON by default; =0 for heuristic")}
+${setting("AURALIS_BUILD_GRAPH=1", "build the graph on ingest during pnpm dev")}
+${setting("AURALIS_BUILD_GRAPH_LLM", "real predicates via Claude Code — ON by default; =0 for heuristic")}
 ${setting("AURALIS_DISTILL_LLM=1", "distill with Claude Code for real merges (costs)")}
 
 ${b("TYPICAL WORKFLOW")} ${dim("— the short path")}
   ${dim("•")} AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm analyze "how does auth work?"
     ${dim("↳ runs the fleet once, builds the graph, answers from graph-aware recall (quality on by default)")}
   ${dim("— or step by step —")}
-  ${dim("1.")} …pnpm dev   ${dim("2.")} pnpm cognify   ${dim("3.")} pnpm recall "<q>"   ${dim("4.")} pnpm distill
+  ${dim("1.")} …pnpm dev   ${dim("2.")} pnpm build-graph   ${dim("3.")} pnpm recall "<q>"   ${dim("4.")} pnpm distill
 
 ${b("DOCS")}  README.md ${dim("(full walkthrough)")}  ·  .env.example ${dim("(every setting + default)")}
 `);

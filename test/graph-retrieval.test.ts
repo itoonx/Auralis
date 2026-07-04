@@ -40,7 +40,7 @@ describe("graph retrieval into recall (M2)", () => {
     const a = new GraphFake();
     a.docs.push({ id: "docA", content: "The login flow lives in auth/session.ts" });
     a.docs.push({ id: "docB", content: "A signed cookie carries the session between requests" });
-    // cognify(docB) produced this edge — docB never mentions 'login', but is graph-connected to docA's entity.
+    // buildGraph(docB) produced this edge — docB never mentions 'login', but is graph-connected to docA's entity.
     a.edges.push({ subject: "auth/session.ts", predicate: "sets", object: "signed cookie", docId: "docB" });
 
     const { context, hitIds } = await new MemoryLibrarian(a, "demo").injectFor("how does login work");
@@ -70,7 +70,7 @@ describe("fuzzy graph retrieval", () => {
   it("connects findings that named the same entity in different forms", async () => {
     const a = new GraphFake();
     a.docs.push({ id: "docA", content: "The login flow lives in auth/session.ts" });
-    // docB cognified under the BASENAME form 'session.ts' (a different agent, different casing/path depth)
+    // docB graphed under the BASENAME form 'session.ts' (a different agent, different casing/path depth)
     a.edges.push({ subject: "session.ts", predicate: "sets", object: "signed cookie", docId: "docB" });
 
     const { context, hitIds } = await new MemoryLibrarian(a, "demo").injectFor("how does login work");

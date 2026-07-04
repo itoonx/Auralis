@@ -77,20 +77,19 @@ AURALIS_DISTILL_LLM=1 pnpm distill   # let Claude Code merge each cluster (highe
 ```
 
 ### 3. A knowledge graph — findings that connect
-> **Concept inspired by [cognee](https://github.com/topoteretes/cognee)'s `cognify` step** — auralis
-> takes the *idea* only and does **not** use or depend on cognee.
+> **The idea of linking memory into a graph is informed by prior art like [cognee](https://github.com/topoteretes/cognee).** The implementation and naming here are auralis's own.
 
-`pnpm cognify` reads each finding, extracts **entity/relationship triplets**, and stores them as graph
+`pnpm build-graph` reads each finding, extracts **entity/relationship triplets**, and stores them as graph
 edges keyed by a normalized entity — so every finding that mentions `auth/session.ts` links to the
 *same node*. And recall **uses** it: `injectFor` blends flat search with a graph-neighborhood expansion
-(the GRAPH_COMPLETION equivalent), so a query pulls in findings *connected* to its topic even when they
+(graph-linked recall), so a query pulls in findings *connected* to its topic even when they
 share no keywords. Inspect it with `pnpm recall "<query>"`.
 
 ```bash
-pnpm cognify                         # build the graph (free heuristic extraction)
-AURALIS_COGNIFY_LLM=1 pnpm cognify   # Claude Code extracts real predicates
+pnpm build-graph                     # build the graph (real predicates by default)
+AURALIS_BUILD_GRAPH_LLM=0 pnpm build-graph   # use the free heuristic instead
 pnpm recall "how does login work"    # flat recall + the graph neighborhood a worker sees
-AURALIS_COGNIFY=1 pnpm dev           # cognify on ingest, as findings land during a run
+AURALIS_BUILD_GRAPH=1 pnpm dev        # build the graph on ingest, as findings land
 ```
 
 ### 4. Decisions that live in the brain, not a folder that rots
@@ -201,7 +200,7 @@ so auralis isn't tied to any one project. See `.env.example`.
 | `pnpm bench` | run the experiment N times, report mean ± spread |
 | `pnpm bench-graph` | measure how much recall the graph adds over flat search |
 | `pnpm distill` | consolidate near-duplicate findings into vetted ones |
-| `pnpm cognify` | build the knowledge graph from findings |
+| `pnpm build-graph` | build the knowledge graph from findings |
 | `pnpm recall "<q>"` | show what recall hands a worker: flat findings + the graph neighborhood |
 | `pnpm decisions` | print the honest ADR log from the brain |
 | `pnpm oracle` | run the brain sidecar on its own |
@@ -234,7 +233,7 @@ AURALIS_TRIALS=3 AURALIS_TASKS=benchmarks/core.json AURALIS_PROJECT_DIR=/path/to
 | `src/memory.ts` | the brain behind a swappable adapter |
 | `src/embed.ts`, `src/embed-sidecar.ts` | real semantic embeddings (a sentence-transformer sidecar) |
 | `src/distill.ts`, `src/run-distill.ts` | cluster near-duplicate findings → one vetted finding, supersede the raws |
-| `src/graph.ts`, `run-cognify.ts`, `run-recall.ts` | cognify findings into edges; graph-expanded recall (`pnpm cognify` / `pnpm recall`) |
+| `src/graph.ts`, `run-build-graph.ts`, `run-recall.ts` | build-graph: turn findings into edges; graph-expanded recall (`pnpm build-graph` / `pnpm recall`) |
 | `src/decision.ts`, `src/decisions.ts` | honest ADRs recorded into the brain — kept & superseded, never deleted |
 | `src/run.ts` · `run-persist.ts` · `run-values.ts` · `bench.ts` | the live demos + the benchmark |
 
@@ -248,8 +247,8 @@ AURALIS_TRIALS=3 AURALIS_TASKS=benchmarks/core.json AURALIS_PROJECT_DIR=/path/to
   all ship a free deterministic heuristic and an optional Claude Code path (`*_LLM=1`) for real quality.
   The heuristics keep everything offline-safe and CI-green; reach for the LLM path when the output matters.
 - **The knowledge graph is used in recall, with fuzzy entity resolution.** Recall blends flat search
-  with a graph-neighborhood expansion (a concept inspired by cognee — auralis doesn't use or depend on
-  cognee), and entity lookup expands to basename/stem variants so different forms of a name resolve
+  with a graph-neighborhood expansion (the graph-memory idea is informed by prior art; the implementation
+  is auralis's own), and entity lookup expands to basename/stem variants so different forms of a name resolve
   together. `pnpm bench-graph` quantifies the uplift (100% on the sample corpus — directional). Deeper
   embedding-based entity resolution is the next refinement.
 - **Read-and-analyse, not write.** auralis coordinates reading. Parallel writing/merges is deliberately out

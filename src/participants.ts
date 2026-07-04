@@ -4,7 +4,7 @@
 import { AgenticEnvironment, BaseParticipant, sendMessage } from "@mozaik-ai/core";
 import type { AgentRunner, RunResult, Exploration } from "./runner";
 import type { MemoryAdapter } from "./memory";
-import { cognify, graphContext } from "./graph";
+import { buildGraph, graphContext } from "./graph";
 
 export interface TraceEvent {
   kind: string;
@@ -97,7 +97,7 @@ export class MemoryLibrarian {
   async injectFor(question: string): Promise<{ context: string; hitIds: string[] }> {
     const hits = await this.adapter.search(question, { project: this.project, limit: 5 });
     const flat = hits.map((h) => `- ${h.content}`).join("\n");
-    // Graph-expand (GRAPH_COMPLETION): seed from the question + top hits so recall surfaces what CONNECTS
+    // Graph-expand (graph-linked recall): seed from the question + top hits so recall surfaces what CONNECTS
     // to what the query is about, even with no shared keywords. No-op when the brain has no graph.
     const seedText = `${question}\n${hits.map((h) => h.content).join("\n")}`;
     const gc = await graphContext(this.adapter, this.project, seedText);
@@ -118,8 +118,8 @@ export class MemoryLibrarian {
     });
     if (id) this.learnedIds.push(id);
     // Graph memory (opt-in, best-effort): turn the finding into entity/relationship edges. Never breaks capture.
-    if (id && process.env.AURALIS_COGNIFY === "1") {
-      try { await cognify(this.adapter, id, this.project, res.result); } catch { /* graph is best-effort */ }
+    if (id && process.env.AURALIS_BUILD_GRAPH === "1") {
+      try { await buildGraph(this.adapter, id, this.project, res.result); } catch { /* graph is best-effort */ }
     }
     return id;
   }

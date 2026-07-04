@@ -1,4 +1,4 @@
-// The "cognify" step: turn a flat finding into entity/relationship triplets so the shared brain becomes
+// The "buildGraph" step: turn a flat finding into entity/relationship triplets so the shared brain becomes
 // a traversable graph, not just a bag of text. Heuristic extraction is deterministic + free; an optional
 // LLM path (via Claude Code) gives real predicates. Entity resolution is by normalized name.
 import type { MemoryAdapter, Triplet } from "./memory";
@@ -57,8 +57,8 @@ export async function llmExtractTriplets(text: string, runner: AgentRunner): Pro
   }
 }
 
-// Cognify one finding: extract triplets and store them as edges linked to the finding's doc id.
-export async function cognify(
+// BuildGraph one finding: extract triplets and store them as edges linked to the finding's doc id.
+export async function buildGraph(
   adapter: MemoryAdapter,
   docId: string,
   project: string,
@@ -85,7 +85,7 @@ export function entityVariants(name: string): string[] {
   return [...out];
 }
 
-// GRAPH_COMPLETION — graph-expand a query: find seed entities in the text, pull each one's neighborhood
+// graph-linked recall — graph-expand a query: find seed entities in the text, pull each one's neighborhood
 // from the brain, and format the connected findings. Surfaces what CONNECTS to what the query is about —
 // which flat keyword/vector search alone can't. No-op when the adapter has no graph, or the brain none.
 export interface GraphContext {

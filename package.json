@@ -14,11 +14,11 @@
     "decisions": "tsx src/decisions.ts",
     "embed": "tsx src/embed-sidecar.ts",
     "distill": "tsx src/run-distill.ts",
-    "cognify": "tsx src/run-cognify.ts",
     "recall": "tsx src/run-recall.ts",
     "help": "tsx src/help.ts",
     "analyze": "tsx src/run-analyze.ts",
-    "bench-graph": "tsx src/run-bench-graph.ts"
+    "bench-graph": "tsx src/run-bench-graph.ts",
+    "build-graph": "tsx src/run-build-graph.ts"
   },
   "keywords": [],
   "author": "",

@@ -24,7 +24,7 @@ db.run(`CREATE TABLE IF NOT EXISTS docs (
 );`);
 db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, content, concepts);`);
 try { db.run("ALTER TABLE docs ADD COLUMN tier TEXT DEFAULT 'raw';"); } catch { /* column already exists */ }
-// Graph layer: entity/relationship triplets extracted from findings (the 'cognify' step). Additive —
+// Graph layer: entity/relationship triplets extracted from findings (the 'buildGraph' step). Additive —
 // the brain is a graph AND a flat doc store. subj_key/obj_key are normalized so 'same key = same node'.
 db.run(`CREATE TABLE IF NOT EXISTS edges (
   id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT, predicate TEXT, object TEXT,
@@ -198,7 +198,7 @@ const server = Bun.serve({
       return Response.json({ success: true, id, embedding: vectorsOn ? embedder : "fts-only" });
     }
 
-    // Graph edges from a finding (posted by the cognify step, separate from learn so slow/optional
+    // Graph edges from a finding (posted by the buildGraph step, separate from learn so slow/optional
     // extraction never blocks learn's synchronous read-after-write).
     if (req.method === "POST" && url.pathname === "/api/relate") {
       const body = (await req.json().catch(() => ({}))) as any;

@@ -1,4 +1,4 @@
-// analyze mode wires: plan → fleet → auto-cognify → graph-aware recall → synthesis. The synthesizer must
+// analyze mode wires: plan → fleet → auto-buildGraph → graph-aware recall → synthesis. The synthesizer must
 // see the GRAPH connection (not just flat hits), and graph-surfaced findings must be counted as recalled.
 import { describe, it, expect } from "vitest";
 import { analyze } from "../src/analyze";
@@ -24,20 +24,20 @@ class Fake implements MemoryAdapter {
 describe("analyze mode", () => {
   it("synthesizes from graph-aware recall", async () => {
     const a = new Fake();
-    const ran = { fleet: false, cognify: false };
+    const ran = { fleet: false, buildGraph: false };
     const res = await analyze(a, "demo", "how does login work", {
       resolveTasks: async () => [{ id: "t1", question: "explore", dependsOn: [] }],
       runFleet: async () => {
         ran.fleet = true;
         return {} as never;
       },
-      cognifyAll: async () => {
-        ran.cognify = true;
+      buildGraphAll: async () => {
+        ran.buildGraph = true;
         return 1;
       },
       synthesize: async (_g, context) => `ANSWER[${context.includes("signed cookie") ? "graph" : "flat"}]`,
     });
-    expect(ran.fleet && ran.cognify).toBe(true);
+    expect(ran.fleet && ran.buildGraph).toBe(true);
     expect(res.graphUsed).toBe(true); // graph neighborhood was recalled
     expect(res.answer).toBe("ANSWER[graph]"); // synthesis saw the connection, not just flat hits
     expect(res.recalled).toContain("d2"); // graph-surfaced finding counted as recalled
