@@ -2,7 +2,7 @@
 // where wall-clock actually goes — which worker, which brain call, which phase is the bottleneck. No deps
 // (perf_hooks only). Spans are kept in memory and, when a file is set, appended as JSONL for later tooling.
 // AURALIS_LOG_TIMING=1 also streams each span live to stderr; the end-of-run summary() prints always.
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -35,7 +35,7 @@ class RunLog {
     this.spans.length = 0;
     this.file = file;
     if (file) {
-      try { mkdirSync(dirname(file), { recursive: true }); } catch { /* noop */ }
+      try { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, ""); } catch { /* noop */ }
     }
   }
 

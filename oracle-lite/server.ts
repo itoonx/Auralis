@@ -10,6 +10,9 @@ import { resolveClaim } from "../src/claim";
 
 const PORT = Number(process.env.ORACLE_PORT ?? 47778);
 const DB_PATH = process.env.ORACLE_DB ?? ".auralis-out/brain.sqlite";
+// The fleet's centralized timing sink (src/log.ts). Read-only here so the dashboard can show where wall
+// time goes; truncated per run by log.reset, so this file is the latest run's spans.
+const TIMING_PATH = process.env.ORACLE_TIMING ?? ".auralis-out/timing.jsonl";
 mkdirSync(DB_PATH.replace(/\/[^/]*$/, "") || ".", { recursive: true });
 
 const db = new Database(DB_PATH, { create: true });
@@ -312,6 +315,52 @@ const server = Bun.serve({
         ts: r.ts,
       }));
       return Response.json({ run, events });
+    }
+
+    // All runs for a project (newest first) with a per-run scorecard — the run history / compare view.
+    if (req.method === "GET" && url.pathname === "/api/runs") {
+      const project = url.searchParams.get("project");
+      let sql = `SELECT run_id AS runId, COUNT(*) AS events, COUNT(DISTINCT node_id) AS tasks,
+        MIN(ts) AS firstTs, MAX(ts) AS lastTs, MAX(seq) AS lastSeq,
+        SUM(kind = 'dedup') AS deduped, SUM(kind = 'overlap') AS overlaps,
+        SUM(kind = 'repair') AS repairs, SUM(kind = 'note') AS notes
+        FROM events`;
+      const params: any[] = [];
+      if (project) { sql += " WHERE project = ?"; params.push(project); }
+      sql += " GROUP BY run_id ORDER BY lastSeq DESC LIMIT 50";
+      return Response.json({ runs: db.query(sql).all(...params) });
+    }
+
+    // Where wall-clock went on the last run: the timing sink grouped by phase, sorted, with share-of-wall.
+    if (req.method === "GET" && url.pathname === "/api/timing") {
+      try {
+        const text = await Bun.file(TIMING_PATH).text();
+        const spans = text.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) as any[];
+        const g = new Map<string, { name: string; n: number; total: number; max: number }>();
+        let wall = 0;
+        for (const s of spans) {
+          const e = g.get(s.name) ?? { name: s.name, n: 0, total: 0, max: 0 };
+          e.n++; e.total += s.ms ?? 0; e.max = Math.max(e.max, s.ms ?? 0);
+          g.set(s.name, e);
+          wall = Math.max(wall, (s.atMs ?? 0) + (s.ms ?? 0)); // spans nest; wall = latest span end
+        }
+        const phases = [...g.values()].sort((a, b) => b.total - a.total).map((e) => ({ ...e, share: wall ? e.total / wall : 0 }));
+        return Response.json({ wall, spans: spans.length, phases });
+      } catch {
+        return Response.json({ wall: 0, spans: 0, phases: [] }); // no run has written timing yet
+      }
+    }
+
+    // Top entities in the knowledge graph by degree — the entry points for the graph explorer.
+    if (req.method === "GET" && url.pathname === "/api/graph/entities") {
+      const project = url.searchParams.get("project");
+      const where = project ? " WHERE project = ?" : "";
+      const params = project ? [project, project] : [];
+      const sql = `SELECT k AS key, MAX(label) AS label, COUNT(*) AS degree FROM (
+        SELECT subj_key AS k, subject AS label FROM edges${where}
+        UNION ALL SELECT obj_key AS k, object AS label FROM edges${where}
+      ) GROUP BY k ORDER BY degree DESC LIMIT 40`;
+      return Response.json({ entities: db.query(sql).all(...params) });
     }
 
     // Bench-only, gated behind ORACLE_ALLOW_RESET (off in normal use → no-delete guarantee unchanged).
