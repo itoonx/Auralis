@@ -2,20 +2,45 @@
 
 [![CI](https://github.com/itoonx/Auralis/actions/workflows/ci.yml/badge.svg)](https://github.com/itoonx/Auralis/actions/workflows/ci.yml)
 
-**A society of AI agents that explore a codebase together — and remember, connect, and refine what they learn.**
+**The coordination layer for fleets of AI coding agents — a shared, persistent brain and real-time
+coordination that make many agents work as one team instead of many amnesiacs.**
 
-Point auralis at any repository and it spins up a small team of Claude Code agents to analyse it. One
-agent breaks your question into subtasks, others investigate, and — the important part — everything they
-discover is written to a **shared brain that persists**. The next agent, and even tomorrow's session,
-builds on that memory instead of starting from a blank page.
+Point auralis at any repository and it runs a *society* of agents that analyse it together. But the
+platform is the part **around** the agents, not the agents themselves: a **shared brain** every agent
+reads and writes, **real-time coordination** so they build on each other's work instead of colliding,
+and **runtime-agnostic seams** so the same brain serves Claude today and any other model or agent
+runtime tomorrow.
 
-Most multi-agent setups are amnesiacs: every run starts cold, agents re-read the same files, and nothing
-carries over. auralis is built around the opposite idea — a persistent, connected, auditable shared
-brain — and the payoff is measurably less wasted work.
+> **The bet:** when you run *many* agents on one codebase, the model isn't the bottleneck — the shared
+> state is. auralis is built around that bet. (Our own timing proves it: the LLM call is 99.9% of
+> wall-clock; everything the platform adds is ~0.05%.)
 
-## The idea
+---
 
-When you run several AI agents on the same codebase, three things go wrong:
+## Contents
+
+- [Why a platform, not just agents](#why-a-platform-not-just-agents)
+- [The four pillars](#the-four-pillars)
+  - [1 · The shared brain (oracle-lite)](#1--the-shared-brain-oracle-lite)
+  - [2 · Coordination (the society)](#2--coordination-the-society)
+  - [3 · Runtime-agnostic (any model, any agent)](#3--runtime-agnostic-any-model-any-agent)
+  - [4 · Observability (find the real bottleneck)](#4--observability-find-the-real-bottleneck)
+- [Proven on live runs](#proven-on-live-runs)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Project layout](#project-layout)
+- [Roadmap](#roadmap)
+- [Honest notes](#honest-notes)
+
+---
+
+## Why a platform, not just agents
+
+Run one agent and it's easy. Run a *fleet* and you've quietly built a small distributed system — a dozen
+agents touching the same repo — and it lives or dies on the orchestration around them, not on which model
+is typing. Three things go wrong every time:
 
 - **They redo each other's work.** Agent A reads the core modules; Agent B reads them all over again,
   because it has no idea A already did.
@@ -24,146 +49,166 @@ When you run several AI agents on the same codebase, three things go wrong:
 - **Their notes don't connect.** Even when memory persists, two agents' findings about the *same* module
   sit as unrelated text blobs. Nothing joins them.
 
-auralis fixes all three by giving the agents a **shared brain** (a small, persistent memory) plus enough
-**coordination** that they hand findings to each other instead of stepping on each other's toes. The
-brain is **append-only and auditable** — nothing it learns is ever silently deleted — and it doesn't
-just store text: it recalls by *meaning*, consolidates duplicates into vetted findings, and links
-findings into a **knowledge graph** that recall actually traverses.
+The classic trap is *accidental* shared state. Give each agent its own isolated worktree and it may no
+longer see the `node_modules`, the context, or the findings a sibling just produced. Isolation quietly
+removed the shared state everyone was leaning on — and it "worked on my machine" right up until it didn't.
 
-## How it works
+auralis takes the opposite stance: **shared state is explicit, persistent, and never accidental.** Every
+agent reaches the same brain over HTTP and gets the same answer — whether it's isolated, in a separate
+process, on another machine, or running tomorrow. Coordination is reactive, not scripted: agents flag
+overlaps live and hand each other what predecessors already found.
+
+## The four pillars
+
+| Pillar | What it gives you | Where it lives |
+|---|---|---|
+| **1 · Shared brain** | persistent, append-only, semantic memory + knowledge graph | `oracle-lite/`, `src/memory.ts` |
+| **2 · Coordination** | a society that plans, shares live, and never double-works | `src/conductor.ts`, `src/participants.ts`, `src/fleet.ts` |
+| **3 · Runtime-agnostic** | swap the model or the agent runtime without touching policy | `src/runner.ts`, `src/claim.ts`, adapters in `src/memory.ts` |
+| **4 · Observability** | centralized timing + provenance to find the real bottleneck | `src/log.ts`, `src/audit.ts` |
+
+---
+
+### 1 · The shared brain (oracle-lite)
+
+The brain is **oracle-lite** — a tiny local service (Bun + SQLite full-text search, plus an optional
+**LanceDB** vector index merged into a hybrid ranking). It's persistent, append-only, and fast enough that
+a finding is searchable the instant it's written — and it degrades gracefully to keyword-only if the vector
+layer isn't available. On top of plain storage it does four things a flat memory can't:
+
+**Recall by meaning, not keywords.** With `AURALIS_SEMANTIC=1` the vectors are real sentence embeddings
+(all-MiniLM-L6-v2, via a small Node sidecar), so *"how do we authenticate users"* finds a note about
+*"the sign-in flow validates credentials"* despite zero shared words. Without the sidecar it falls back to
+a lightweight built-in embedder, so it always runs.
+
+**Distillation — the brain gets sharper, not just bigger.** A persistent brain rots by accumulation.
+`pnpm distill` is the janitor: it clusters findings that mean the same thing, synthesises each cluster into
+one **vetted** finding, and **supersedes** the raws — never deleting them (superseded notes stay searchable
+but rank below the vetted one).
+
+**A knowledge graph — findings that connect.** `pnpm build-graph` reads each finding, extracts
+entity/relationship triplets, and stores them as edges keyed by a normalized entity — so every finding that
+mentions `auth/session.ts` links to the *same node*. Recall **uses** it: `injectFor` blends flat search with
+a graph-neighborhood expansion, so a query pulls in findings *connected* to its topic even when they share
+no keywords. *(The idea of graph-linked memory is informed by prior art like
+[cognee](https://github.com/topoteretes/cognee); the implementation and naming here are auralis's own.)*
+
+**Honest ADRs that live in the brain.** auralis records a decision *into* the shared brain (via a `decide`
+tool), so the next agent that touches that area **searches and finds it** right when it's about to change
+something. It keeps the road not taken (rejected alternatives, and why), and — because the brain is
+append-only — a reversed decision is never deleted, only *superseded* ("reversed because …").
+
+> **Guarantee:** the brain has **no delete route at all.** Everything is append-only and auditable;
+> "removal" is always supersession. `pnpm values` demonstrates it.
+
+---
+
+### 2 · Coordination (the society)
 
 auralis runs its agents as a **society** on the [mozaik](https://github.com/jigjoy-ai/mozaik) runtime —
 participants that react to each other on a shared event bus, rather than following a fixed script.
 
-- **Planner** turns your one-line goal into a small **dependency graph** of subtasks — a few exploration
-  tasks feeding a final synthesis.
-- **Conductor** walks that graph level by level. Before each task it *pulls* relevant knowledge out of
-  the brain; after each task it *pushes* the new findings back in. Independent tasks in a level can run
-  concurrently.
-- **Workers** are real Claude Code agents (via the Agent SDK — no API key, it reuses your existing
-  login). What they read and search *is* their record of work. They can also call the brain directly as
-  an MCP tool.
-- **MemoryLibrarian** is the bridge to the brain: it injects what's already known before a worker starts,
-  and captures what it found afterwards.
+- **Planner** turns your one-line goal into a small **dependency graph** of subtasks.
+- **Conductor** walks that graph level by level. Before each task it *pulls* relevant knowledge from the
+  brain; after each task it *pushes* new findings back. Independent tasks in a level can run concurrently.
+- **Workers** are real coding agents (Claude Code via the Agent SDK — no API key, it reuses your login).
+  What they read and search *is* their record of work; they can also call the brain directly as an MCP tool.
+- **MemoryLibrarian** injects what's already known before a worker starts, and captures what it found after.
 - **Sentry** watches the bus and flags, live, when two workers wander into the same territory.
-- **Critic** grades each answer and quietly retries the weak or cut-off ones, so a worker that hits its
-  turn limit doesn't poison the shared brain with a half-finished note (self-repair).
+- **Critic** grades each answer and quietly retries the weak or cut-off ones (self-repair), so a worker that
+  hits its turn limit doesn't poison the brain with a half-finished note.
 - **Auditor** records everything, so any run leaves a readable "why did it do that?" trail.
 
-## The brain: oracle-lite
+Two coordination mechanisms make the fleet act like a team, not a crowd:
 
-The brain is **oracle-lite** — a tiny local service (Bun + SQLite full-text search, plus an optional
-**LanceDB** vector index merged into a hybrid ranking). It's persistent, append-only, and fast enough
-that a finding is searchable the instant it's written — and it degrades gracefully to keyword-only if
-the vector layer isn't available.
+**Real-time sharing (`AURALIS_WORKER_PULL`, on by default).** Workers don't just get a briefing at the
+start — they read and write the brain **mid-task**. A worker that discovers something publishes it
+immediately; a teammate later in the same level can pull it before finishing. Sharing is live, not
+batched at level boundaries.
 
-On top of plain storage, the brain does several things a flat memory can't:
+**Deterministic dedup (the claim registry).** Real-time advice isn't enough on its own — an LLM can ignore
+it. So before a worker reads a file, it must **claim** it against the shared brain (`/api/claim`). If a
+teammate already owns that file, the read is **blocked at the tool boundary** (a `PreToolUse` hook) and the
+worker is redirected to reuse the finding. This is prevention, not a polite request — proven
+`prevented-dupes=4` on a live 3-worker run.
 
-### 1. Recall by meaning, not keywords
-With `AURALIS_SEMANTIC=1` the vectors are **real sentence embeddings** (all-MiniLM-L6-v2, via a small
-Node sidecar), so a search for *"how do we authenticate users"* finds a note about *"the sign-in flow
-validates credentials"* despite zero shared words. Without the sidecar it falls back to a lightweight
-built-in embedder, so it always runs.
+---
 
-### 2. Distillation — the brain gets sharper, not just bigger
-A persistent brain rots by accumulation: runs pile up near-duplicate and contradictory notes.
-`pnpm distill` is the janitor — it clusters findings that mean the same thing, synthesises each cluster
-into one **vetted** finding, and **supersedes** the raws (never deleting them; superseded notes stay
-searchable but rank below the vetted one).
+### 3 · Runtime-agnostic (any model, any agent)
 
-```bash
-pnpm distill                         # free heuristic consolidation
-AURALIS_DISTILL_LLM=1 pnpm distill   # let Claude Code merge each cluster (higher quality, costs)
-```
+The platform is built so you can change *who does the thinking* without rewriting *how the team coordinates*.
+Two seams make that real:
 
-### 3. A knowledge graph — findings that connect
-> **The idea of linking memory into a graph is informed by prior art like [cognee](https://github.com/topoteretes/cognee).** The implementation and naming here are auralis's own.
+- **Swappable memory adapter** (`MemoryAdapter`): `OracleAdapter` talks to oracle-lite over HTTP;
+  `NullMemoryAdapter` is the no-brain control. Anything that implements the interface is a valid brain.
+- **Swappable agent runtime** (`AgentRunner`): `ClaudeCodeRunner` drives Claude Code; `StubRunner` is a
+  deterministic test double. A GPT / Gemini / Aider runner is just another implementation.
 
-`pnpm build-graph` reads each finding, extracts **entity/relationship triplets**, and stores them as graph
-edges keyed by a normalized entity — so every finding that mentions `auth/session.ts` links to the
-*same node*. And recall **uses** it: `injectFor` blends flat search with a graph-neighborhood expansion
-(graph-linked recall), so a query pulls in findings *connected* to its topic even when they
-share no keywords. Inspect it with `pnpm recall "<query>"`.
+The crucial design choice: **policy lives in the middle layer, mechanism lives per-runtime.** The claim
+*decision* (`src/claim.ts`) is a pure, dependency-free function the oracle-lite server owns — so every
+process, model, and agent runtime resolves ownership against the **same** registry and gets the same
+answer. Only the *enforcement mechanism* is runtime-specific (Claude uses a `PreToolUse` hook; another
+runtime uses whatever it has). Add a new agent = write a runner + its intercept; you never touch the shared
+policy.
 
-```bash
-pnpm build-graph                     # build the graph (real predicates by default)
-AURALIS_BUILD_GRAPH_LLM=0 pnpm build-graph   # use the free heuristic instead
-pnpm recall "how does login work"    # flat recall + the graph neighborhood a worker sees
-AURALIS_BUILD_GRAPH=1 pnpm dev        # build the graph on ingest, as findings land
-```
+> This is what lets a heterogeneous fleet — Claude and GPT and Aider, across separate processes — dedup
+> against one another instead of each keeping its own private notion of who's doing what.
 
-### 4. Decisions that live in the brain, not a folder that rots
-Most teams never keep Architecture Decision Records up to date. auralis records a decision *into the
-shared brain* (via a `decide` tool), so the next agent that touches that area **searches and finds it**
-right when it's about to change something. It's an **honest** ADR by construction: it keeps the road not
-taken (the rejected alternatives, and why), and it hands a human the things an agent can't see (external
-constraints like deadlines, licensing, lock-in) rather than dressing them up as clean technical reasons.
-Because the brain is append-only, a reversed decision is never deleted — it's *superseded* ("reversed
-because …"), so a future agent finds both the original call and its reversal.
+---
 
-```bash
-pnpm decisions   # print the honest ADR log straight from the brain
-```
+### 4 · Observability (find the real bottleneck)
 
-## The hard part isn't the model — it's the shared state
+You can't optimise a fleet you can't see. auralis has a **centralized timing sink** (`src/log.ts`): every
+meaningful span — `worker.run`, `brain.inject`, `brain.capture`, `oracle.search`, `oracle.claim`,
+`graph.build`, `graph.expand` — is timed and rolled up into a grouped summary sorted by total time, printed
+at the end of every run (`AURALIS_LOG_TIMING=1` also streams each span live to stderr; spans persist to
+`.auralis-out/timing.jsonl`).
 
-Run one agent and it's easy. Run a *fleet* and you've quietly built a small distributed system: a dozen
-agents touching the same repo, and the whole thing lives or dies on the orchestration around them, not
-on which model is doing the typing.
+This is how we *know* the model is the bottleneck, not the brain: timing shows `worker.run` is **99.9%** of
+wall-clock and `oracle.claim` averages **2.4ms**. It turns "which knob matters?" from an opinion into a
+measurement — and it's what points the roadmap at model routing rather than shaving milliseconds off HTTP.
 
-The classic trap is *accidental* shared state. Give each agent its own isolated worktree and you may find
-it can no longer see the `node_modules` — or the context, or the findings — that a sibling just produced.
-Isolation quietly removed the shared state everyone was leaning on, and it "worked on my machine" right
-up until it didn't.
+Alongside timing, every run writes a **provenance trail** (via the Auditor): what each task recalled,
+explored, produced, and contributed. Nothing the fleet does is a black box.
 
-auralis takes the opposite stance: **shared state is explicit and persistent, never accidental.** Every
-agent reaches the same brain over HTTP and gets the same answer — whether it's isolated, in a separate
-process, or running tomorrow. And coordination is reactive: the Sentry calls out when two agents wander
-into the same territory, and the Conductor hands each one what its predecessors already found.
+---
 
-*Scope, honestly:* today auralis coordinates agents that **read and analyse** a codebase. Parallel
-**writing** — worktrees, clean merges, no lost work — is the adjacent problem it's built to grow into,
-not one it claims to have solved yet.
+## Proven on live runs
 
-## What it can do — proven on live runs
+Every claim below was measured on real Claude Code runs (over auralis's own codebase), not asserted. The
+numbers are real but **directional** — each is from a single non-deterministic run.
 
-Every claim below was measured on real Claude Code runs (over auralis's own codebase), not asserted.
-The numbers are real but **directional** — each is from a single non-deterministic run.
-
-- **Agents share instead of repeat.** Two workers analysing related things used to both re-read the
-  shared core; with the brain, the second one skips it. Redundant re-reads dropped to **zero**, and total
-  files opened fell from 19 to 14.
-- **They coordinate as a real team.** The Planner splits a goal into a dependency graph and workers run
-  against it while the Sentry flags overlaps live. On a 3-task run, redundant work fell **53%** (17 → 8).
-- **Memory outlives the session.** Seed the brain in one process, then open a *completely separate*
-  process for a related task: it recalled the earlier findings and opened just **1 file** — where a cold
-  run with no memory opened **9**.
-- **It works on any codebase.** Pointed at a different project (Express) with no code changes — just one
-  environment variable — it still cut redundant work by two-thirds.
-- **Nothing is lost, everything is explainable.** Outdated findings are *superseded* (flagged but still
-  searchable), never deleted — there's no delete route at all — and every run writes a provenance trail
-  of what each task recalled, explored, produced, and contributed.
-- **The brain refines and connects.** Distillation collapsed two ways of describing a sign-in flow into
-  one vetted finding (raws superseded, not deleted); and graph recall pulled a `SessionToken` finding
-  into a query about *login* purely through their shared `auth/session.ts` node — a connection flat
-  keyword search can't make (recall went 1 → 2 findings).
+| What | Result |
+|---|---|
+| **Agents share instead of repeat** | redundant re-reads → **0**; files opened 19 → 14 |
+| **They coordinate as a team** | 3-task run, redundant work fell **53%** (17 → 8) |
+| **Memory outlives the session** | separate process recalled prior findings, opened **1** file where a cold run opened **9** |
+| **Works on any codebase** | pointed at Express (one env var, no code change) — still cut redundant work ~two-thirds |
+| **Real-time sharing** | live pushes 6, teammate pulled & hit 4/6, redundant reads 4 → **0** |
+| **Deterministic dedup** | 3-worker parallel run, **prevented-dupes = 4**, read-redundant = 0 |
+| **Prod mode is ~2× faster** | skip the A/B baseline arm: 398s → 219s (~45%) |
+| **Coordination overhead is negligible** | `oracle.claim` mean **2.4ms** vs `worker.run` = 99.9% of wall |
+| **The brain refines & connects** | distillation collapsed two sign-in notes into one vetted finding; graph recall pulled a `SessionToken` finding into a *login* query via a shared `auth/session.ts` node (recall 1 → 2) |
 
 ## Architecture
 
 ```
              mozaik · one shared event bus (the society)
    ┌──────────────────────────────────────────────────────────┐
-   │   Planner → Conductor → Worker ×N (Claude Code)           │
+   │   Planner → Conductor → Worker ×N (any agent runtime)     │
    │   MemoryLibrarian · Sentry · Critic · Auditor             │
-   └──────────────────────────┬───────────────────────────────┘
-                              │  learn · search · supersede · relate (HTTP / MCP)
-                       ┌──────▼───────────────────────────────┐
-                       │  oracle-lite · the brain              │
-                       │  Bun + SQLite FTS5 · LanceDB vectors  │
-                       │  persistent · append-only (no delete) │
-                       │  semantic recall · distillation · graph│
-                       └───────────────────────────────────────┘
+   └───────────┬───────────────────────────────┬──────────────┘
+    learn · search · relate (HTTP / MCP)        │  claim (HTTP) — deterministic dedup
+   ┌───────────▼───────────────────────────────▼──────────────┐
+   │  oracle-lite · the brain + the middle layer               │
+   │  Bun + SQLite FTS5 · LanceDB vectors                      │
+   │  persistent · append-only (no delete)                    │
+   │  semantic recall · distillation · graph · claim registry  │
+   └───────────────────────────────────────────────────────────┘
 ```
+
+Two arrows into oracle-lite, on purpose: the left is **memory** (what agents know), the right is **policy**
+(who's doing what). Both are central so every runtime shares them.
 
 ## Getting started
 
@@ -174,85 +219,141 @@ pnpm install
 pnpm test        # fast offline proofs of the mechanics + a live memory check
 ```
 
-Then point it at any repo:
+Then point it at any repo. The short path is one command:
 
 ```bash
-# watch a team analyse a codebase and share findings, with a "why" trail
-AURALIS_PROJECT_DIR=/path/to/your/repo pnpm dev
-
-# prove the memory survives across separate processes
-AURALIS_PROJECT_DIR=/path/to/your/repo pnpm persist
-
-# see the append-only / supersession guarantees for yourself
-pnpm values
+# run the society once, build the graph, answer from graph-aware recall (quality on by default)
+AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm analyze "how does auth work?"
 ```
 
-Everything project-specific — the target repo, the goal, the tasks — comes from environment variables,
-so auralis isn't tied to any one project. See `.env.example`.
+Or step through the pieces:
 
+```bash
+AURALIS_PROJECT_DIR=/path/to/repo pnpm dev        # watch a team analyse a repo, with a "why" trail
+AURALIS_PROJECT_DIR=/path/to/repo pnpm persist    # prove memory survives across separate processes
+pnpm values                                        # see the append-only / supersession guarantees
+```
+
+Everything project-specific — the target repo, the goal, the tasks — comes from environment variables, so
+auralis isn't tied to any one project. See [Configuration](#configuration) and `.env.example`.
+
+## Command reference
+
+`pnpm run help` prints this live. Everything runs via env vars + pnpm scripts (no unified CLI yet).
+
+**Analyse & answer**
 | Command | What it does |
 |---|---|
-| `pnpm run help` | print the usage guide — commands, settings, and a typical workflow |
-| `pnpm analyze "<goal>"` | **the short path** — run the society once, then answer from graph-aware recall (quality on) |
-| `pnpm dev` | run the coordinated fleet over a repo (baseline vs shared brain) |
+| `pnpm analyze "<goal>"` | **the short path** — run the society once, then answer from graph-aware recall |
+| `pnpm dev` | run the coordinated fleet over a repo (baseline vs shared brain) + a "why" trail |
+
+**Run the fleet**
+| Command | What it does |
+|---|---|
 | `pnpm persist` | prove cross-session recall across separate processes |
-| `pnpm values` | demonstrate append-only + supersession, never delete |
 | `pnpm bench` | run the experiment N times, report mean ± spread |
 | `pnpm bench-graph` | measure how much recall the graph adds over flat search |
-| `pnpm distill` | consolidate near-duplicate findings into vetted ones |
-| `pnpm build-graph` | build the knowledge graph from findings |
+
+**The brain**
+| Command | What it does |
+|---|---|
 | `pnpm recall "<q>"` | show what recall hands a worker: flat findings + the graph neighborhood |
+| `pnpm build-graph` | build the knowledge graph from findings (entity/relationship edges) |
+| `pnpm distill` | consolidate near-duplicate findings into vetted ones |
 | `pnpm decisions` | print the honest ADR log from the brain |
-| `pnpm oracle` | run the brain sidecar on its own |
+| `pnpm values` | demonstrate append-only + supersession (never deletes) |
+
+**Services & dev**
+| Command | What it does |
+|---|---|
+| `pnpm oracle` | run the brain sidecar (oracle-lite) on its own |
 | `pnpm embed` | run the semantic embedding sidecar |
+| `pnpm test` | run the test suite |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm run help` | the usage guide |
 
-## Tuning: sharing vs. speed
+## Configuration
 
-By default the fleet runs **sequentially** (`AURALIS_PARALLEL=1`), which maximises sharing — every task
-sees everything its predecessors found. Set `AURALIS_PARALLEL=3` to run each dependency level's tasks
-concurrently: faster, but tasks in the same level start together and can't reuse each other (only
-findings from *earlier* levels carry over). It's a genuine speed-vs-sharing dial.
+Full list + defaults in `.env.example`. The ones that matter most:
 
-To measure the payoff robustly instead of eyeballing one noisy run, `pnpm bench` runs the experiment
-several times over a fixed task set (resetting the brain between trials) and reports the spread:
+**Targeting**
+| Variable | Effect |
+|---|---|
+| `AURALIS_PROJECT_DIR` | the repo to analyse (default: current dir) |
+| `AURALIS_PROJECT` | brain namespace — recall is scoped to it; use one per repo |
+| `AURALIS_GOAL` | the analysis goal for `pnpm dev` |
+| `AURALIS_TASKS` | fixed task set (inline JSON or a file path) — keeps benchmark trials comparable |
 
-```bash
-AURALIS_TRIALS=3 AURALIS_TASKS=benchmarks/core.json AURALIS_PROJECT_DIR=/path/to/repo pnpm bench
-# → redundancy reduction: mean 41.2% · min 33.3% · max 50.0% · sd 6.8
-```
+**Coordination & speed**
+| Variable | Effect |
+|---|---|
+| `AURALIS_WORKER_PULL` | workers read/write the brain live, mid-task (real-time sharing + claim dedup) — **on by default**; `=0` to opt out |
+| `AURALIS_PARALLEL=3` | run each DAG level concurrently — faster, but same-level tasks can't reuse each other |
+| `AURALIS_BASELINE=0` | **prod mode** — skip the A/B baseline arm, run only the shared brain (~2× faster) |
+
+**Quality (heuristic vs LLM)**
+| Variable | Effect |
+|---|---|
+| `AURALIS_SEMANTIC=1` | real sentence-embedding recall (starts the embed sidecar) |
+| `AURALIS_BUILD_GRAPH` | build the graph on ingest during `pnpm dev` |
+| `AURALIS_BUILD_GRAPH_LLM` | real predicates via Claude Code — **on by default**; `=0` for the free heuristic |
+| `AURALIS_DISTILL_LLM=1` | distill with Claude Code for real merges (costs) |
+
+**Observability**
+| Variable | Effect |
+|---|---|
+| `AURALIS_LOG_TIMING=1` | stream each timing span to stderr; the TIMING summary prints either way |
 
 ## Project layout
 
 | Path | What it is |
 |---|---|
-| `oracle-lite/server.ts` | the shared brain — hybrid FTS + LanceDB vectors, graph edges, learn / supersede / relate / stats (no delete route) |
+| `oracle-lite/server.ts` | the brain **and** the middle layer — hybrid FTS + LanceDB vectors, graph edges, learn / supersede / relate / stats (no delete), and the `/api/claim` registry |
+| `src/claim.ts` | the pure claim decision (first worker wins) — dependency-free so the Bun server and any runtime share it |
 | `src/planner.ts`, `src/dag.ts` | turn a goal into a dependency graph |
 | `src/conductor.ts` | walk the graph (level-parallel), self-repair via a Critic, pull-before / push-after the brain |
+| `src/fleet.ts` | wire up a fleet: start the brain, resolve tasks, run one arm, manage claim scope |
 | `src/participants.ts` | Worker, MemoryLibrarian, Sentry, Auditor |
-| `src/runner.ts`, `src/brain-mcp.ts` | drive Claude Code (or a deterministic stub); expose the brain as MCP tools |
-| `src/memory.ts` | the brain behind a swappable adapter |
+| `src/runner.ts`, `src/brain-mcp.ts` | drive Claude Code (or a deterministic stub); expose the brain as MCP tools; enforce claims at the tool boundary |
+| `src/memory.ts` | the brain behind a swappable adapter (Oracle / Null) — memory **and** claim endpoints |
+| `src/log.ts` | centralized timing sink — every span, one grouped summary |
 | `src/embed.ts`, `src/embed-sidecar.ts` | real semantic embeddings (a sentence-transformer sidecar) |
 | `src/distill.ts`, `src/run-distill.ts` | cluster near-duplicate findings → one vetted finding, supersede the raws |
-| `src/graph.ts`, `run-build-graph.ts`, `run-recall.ts` | build-graph: turn findings into edges; graph-expanded recall (`pnpm build-graph` / `pnpm recall`) |
+| `src/graph.ts`, `run-build-graph.ts`, `run-recall.ts` | build the graph from findings; graph-expanded recall |
 | `src/decision.ts`, `src/decisions.ts` | honest ADRs recorded into the brain — kept & superseded, never deleted |
 | `src/run.ts` · `run-persist.ts` · `run-values.ts` · `bench.ts` | the live demos + the benchmark |
+
+## Roadmap
+
+Where the platform is headed. Ordered by leverage (timing tells us which knob actually moves the needle).
+
+- **Model / turn routing** — *highest leverage.* Timing proves the LLM call is 99.9% of wall-clock, so the
+  real cost lever is *which* model runs *which* task: a small/cheap model for the Planner and easy subtasks,
+  Opus reserved for hard analysis, plus a per-task turn budget. This is the one change measurement says is
+  worth it.
+- **Parallel writing, not just reading** — today auralis coordinates agents that **read and analyse**.
+  Coordinated *writing* — worktrees, clean merges, no lost work — is the adjacent problem the shared-state
+  and claim machinery is built to grow into. The claim registry already generalises from "who reads this
+  file" to "who edits this file."
+- **Cross-machine fleets** — the claim policy already lives in the middle layer, so cross-process dedup
+  works today. The remaining piece is a **TTL/lease** (so a worker that dies mid-run doesn't hold its claim
+  forever) and true multi-machine namespacing. Deferred until a genuine multi-machine fleet exists.
+- **Heterogeneous runtimes in one fleet** — the `AgentRunner` seam makes GPT / Gemini / Aider runners
+  drop-in; the work is writing each runner and its per-runtime claim intercept. They already share one brain
+  and one claim registry.
+- **Trustworthy numbers** — replace the single-run (n=1) proofs above with `pnpm bench` mean ± spread.
 
 ## Honest notes
 
 - **The live numbers are directional.** Each headline figure is from a single non-deterministic run — real,
   but they'll vary with how much the tasks overlap and how faithfully the agents reuse what they're handed.
-  `pnpm bench` exists to turn any one of them into a mean ± spread; the deterministic tests (31 of them, in
-  CI) pin down the *mechanisms*, not the magnitudes.
+  `pnpm bench` turns any one of them into a mean ± spread; the deterministic tests (44, in CI) pin down the
+  *mechanisms*, not the magnitudes.
 - **The heuristic paths are shallow by design.** Distillation clustering, graph extraction, and the Critic
-  all ship a free deterministic heuristic and an optional Claude Code path (`*_LLM=1`) for real quality.
+  each ship a free deterministic heuristic and an optional Claude Code path (`*_LLM=1`) for real quality.
   The heuristics keep everything offline-safe and CI-green; reach for the LLM path when the output matters.
-- **The knowledge graph is used in recall, with fuzzy entity resolution.** Recall blends flat search
-  with a graph-neighborhood expansion (the graph-memory idea is informed by prior art; the implementation
-  is auralis's own), and entity lookup expands to basename/stem variants so different forms of a name resolve
-  together. `pnpm bench-graph` quantifies the uplift (100% on the sample corpus — directional). Deeper
-  embedding-based entity resolution is the next refinement.
-- **Read-and-analyse, not write.** auralis coordinates reading. Parallel writing/merges is deliberately out
-  of scope for now.
+- **Read-and-analyse, not write — yet.** auralis coordinates reading today. Parallel writing/merges is on
+  the roadmap, not a solved claim.
 
 ---
 
