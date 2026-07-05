@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  getGraph, getGraphEntities, getRuns, getTiming, search,
-  type GraphEdge, type GraphEntity, type RunSummary, type SearchResult, type Timing,
+  getDecisions, getGraphAll, getRuns, getTiming, search,
+  type Decision, type GraphAllEdge, type RunSummary, type SearchResult, type Timing,
 } from "@/lib/api"
+import { ForceGraph } from "@/components/force-graph"
 
 const fmt = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(ms < 10 ? 1 : 0)}ms`)
 
@@ -89,48 +90,71 @@ export function RunsPanel({ project, tick, selected, onSelect }: { project: stri
   )
 }
 
-// ── Graph: entities by degree; click one to see its 1-hop neighborhood (subject —predicate→ object).
+// ── Graph: the whole knowledge graph as a force-directed view. Drag to pin, hover to spotlight a node's
+// neighborhood, click a node to list its edges below.
 export function GraphPanel({ project, tick }: { project: string; tick: number }) {
-  const [entities, setEntities] = useState<GraphEntity[]>([])
+  const [edges, setEdges] = useState<GraphAllEdge[]>([])
   const [sel, setSel] = useState("")
-  const [edges, setEdges] = useState<GraphEdge[]>([])
-  useEffect(() => { getGraphEntities(project).then((d) => setEntities(d.entities)).catch(() => setEntities([])) }, [project, tick])
-  useEffect(() => {
-    if (!sel) { setEdges([]); return }
-    getGraph(sel, project).then((d) => setEdges(d.edges)).catch(() => setEdges([]))
-  }, [sel, project])
+  useEffect(() => { getGraphAll(project).then((d) => setEdges(d.edges)).catch(() => setEdges([])) }, [project, tick])
+  const nodeCount = new Set(edges.flatMap((e) => [e.subj_key, e.obj_key])).size
+  const nbr = sel ? edges.filter((e) => e.subj_key === sel || e.obj_key === sel) : []
   return (
     <Card>
-      <CardHeader className="pb-3"><CardTitle>Knowledge graph <span className="text-xs font-normal text-muted-foreground">{entities.length} entities</span></CardTitle></CardHeader>
-      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <div className="text-xs text-muted-foreground mb-2">entities by degree — click to explore</div>
-          <div className="flex flex-wrap gap-1.5">
-            {entities.length === 0 && <span className="text-sm text-muted-foreground">no graph yet — run <code className="font-mono">pnpm build-graph</code>.</span>}
-            {entities.map((e) => (
-              <button
-                key={e.key}
-                onClick={() => setSel(e.key)}
-                className={`text-xs rounded-full border px-2 py-1 hover:bg-muted transition-colors ${sel === e.key ? "bg-muted border-primary" : ""}`}
-              >
-                {e.label} <span className="text-muted-foreground">·{e.degree}</span>
-              </button>
-            ))}
+      <CardHeader className="pb-3">
+        <CardTitle>Knowledge graph
+          <span className="text-xs font-normal text-muted-foreground"> {nodeCount} nodes · {edges.length} edges · drag / hover</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {edges.length === 0
+          ? <p className="text-sm text-muted-foreground">no graph yet — run <code className="font-mono">pnpm build-graph</code>.</p>
+          : <ForceGraph edges={edges} onSelect={setSel} />}
+        {sel && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">neighborhood of {sel}</div>
+            <ul className="space-y-1">
+              {nbr.map((e, i) => (
+                <li key={i} className="font-mono text-xs">
+                  <span>{e.subject}</span>
+                  <span className="text-violet-400"> —{e.predicate}→ </span>
+                  <span>{e.object}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-        <div>
-          <div className="text-xs text-muted-foreground mb-2">{sel ? `neighborhood of ${sel}` : "select an entity"}</div>
-          <ul className="space-y-1">
-            {edges.map((e, i) => (
-              <li key={i} className="font-mono text-xs">
-                <span>{e.subject}</span>
-                <span className="text-violet-400"> —{e.predicate}→ </span>
-                <span>{e.object}</span>
-              </li>
-            ))}
-            {sel && edges.length === 0 && <li className="text-sm text-muted-foreground">no edges.</li>}
-          </ul>
-        </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Decisions: the honest ADR log straight from the brain. Superseded ones are kept and flagged (reversed,
+// never deleted) — the values layer, visible.
+export function DecisionsPanel({ project, tick }: { project: string; tick: number }) {
+  const [decisions, setDecisions] = useState<Decision[]>([])
+  useEffect(() => { getDecisions(project).then((d) => setDecisions(d.decisions)).catch(() => setDecisions([])) }, [project, tick])
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle>Decisions <span className="text-xs font-normal text-muted-foreground">honest ADRs — superseded, never deleted</span></CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {decisions.length === 0 && (
+          <p className="text-sm text-muted-foreground">no decisions yet — agents record them via the <code className="font-mono">decide</code> tool.</p>
+        )}
+        {decisions.map((d) => {
+          const title = d.content.split("\n")[0].replace(/^Architecture Decision Record:\s*/, "")
+          return (
+            <div key={d.id} className={`rounded-md border p-3 ${d.supersededBy ? "opacity-70" : ""}`}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="font-medium text-sm">{title}</span>
+                {d.supersededBy && <Badge variant="outline" className="h-4 px-1.5 text-[10px] text-amber-400">reversed</Badge>}
+              </div>
+              {d.supersededReason && <div className="text-[11px] text-amber-400/80 mb-1.5">{d.supersededReason}</div>}
+              <pre className="whitespace-pre-wrap font-mono text-[11px] text-muted-foreground leading-relaxed">{d.content}</pre>
+            </div>
+          )
+        })}
       </CardContent>
     </Card>
   )

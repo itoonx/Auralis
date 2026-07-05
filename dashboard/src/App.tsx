@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GraphPanel, RunsPanel, SearchPanel, TimingPanel } from "@/components/panels"
+import { DecisionsPanel, GraphPanel, RunsPanel, SearchPanel, TimingPanel } from "@/components/panels"
 import { getDocs, getStats, getTimeline, scorecard, type Finding, type Stats, type TimelineEvent } from "@/lib/api"
 
 // Glyph + accent per event kind — mirrors the CLI reader so the timeline reads the same in both places.
@@ -51,7 +51,7 @@ export default function App() {
 
   const load = useCallback(async () => {
     try {
-      const [tl, st, dc] = await Promise.all([getTimeline(project, runSel || undefined), getStats(), getDocs(project)])
+      const [tl, st, dc] = await Promise.all([getTimeline(project, runSel || undefined), getStats(project), getDocs(project)])
       setEvents(tl.events)
       setRunId(tl.run ?? "")
       setStats(st)
@@ -120,6 +120,7 @@ export default function App() {
             <TabsTrigger value="timing">Timing</TabsTrigger>
             <TabsTrigger value="runs">Runs</TabsTrigger>
             <TabsTrigger value="graph">Graph</TabsTrigger>
+            <TabsTrigger value="decisions">Decisions</TabsTrigger>
             <TabsTrigger value="search">Search</TabsTrigger>
           </TabsList>
 
@@ -202,6 +203,7 @@ export default function App() {
           <TabsContent value="timing" className="mt-0"><TimingPanel tick={tick} /></TabsContent>
           <TabsContent value="runs" className="mt-0"><RunsPanel project={project} tick={tick} selected={runSel} onSelect={setRunSel} /></TabsContent>
           <TabsContent value="graph" className="mt-0"><GraphPanel project={project} tick={tick} /></TabsContent>
+          <TabsContent value="decisions" className="mt-0"><DecisionsPanel project={project} tick={tick} /></TabsContent>
           <TabsContent value="search" className="mt-0"><SearchPanel project={project} /></TabsContent>
         </Tabs>
       </main>

@@ -35,7 +35,8 @@ async function json<T>(url: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export const getStats = () => json<Stats>("/api/stats");
+export const getStats = (project?: string) =>
+  json<Stats>(project ? `/api/stats?project=${encodeURIComponent(project)}` : "/api/stats");
 
 export const getTimeline = (project: string, run?: string) => {
   const u = new URLSearchParams({ project, limit: "500" });
@@ -119,3 +120,25 @@ export interface SearchResult {
 }
 export const search = (q: string, project: string) =>
   json<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}&project=${encodeURIComponent(project)}&limit=15`);
+
+// ---- whole graph (force view) ----
+export interface GraphAllEdge {
+  subject: string;
+  predicate: string;
+  object: string;
+  subj_key: string;
+  obj_key: string;
+}
+export const getGraphAll = (project: string) =>
+  json<{ edges: GraphAllEdge[] }>(`/api/graph/all?project=${encodeURIComponent(project)}&limit=400`);
+
+// ---- honest ADR log ----
+export interface Decision {
+  id: string;
+  content: string;
+  createdAt: string;
+  supersededBy?: string;
+  supersededReason?: string;
+}
+export const getDecisions = (project: string) =>
+  json<{ decisions: Decision[] }>(`/api/decisions?project=${encodeURIComponent(project)}`);
