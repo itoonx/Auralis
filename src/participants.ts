@@ -6,6 +6,7 @@ import type { AgentRunner, RunResult, Exploration } from "./runner";
 import type { MemoryAdapter } from "./memory";
 import { buildGraph, graphContext } from "./graph";
 import { log } from "./log";
+import type { Emit } from "./narrate";
 
 export interface TraceEvent {
   kind: string;
@@ -88,6 +89,10 @@ export class Auditor extends BaseParticipant {
 export class Sentry extends BaseParticipant {
   private readonly claimed = new Map<string, string>(); // target -> first worker that explored it
   readonly warnings: { target: string; workers: [string, string] }[] = [];
+  // emit (optional): narrate each overlap onto the activity timeline as it's detected.
+  constructor(private readonly emit?: Emit) {
+    super();
+  }
   async onMessage(message: string): Promise<void> {
     let e: any;
     try {
@@ -98,8 +103,10 @@ export class Sentry extends BaseParticipant {
     if (e?.kind !== "finding" || !Array.isArray(e.targets)) return;
     for (const t of e.targets as string[]) {
       const prev = this.claimed.get(t);
-      if (prev && prev !== e.workerId) this.warnings.push({ target: t, workers: [prev, e.workerId] });
-      else if (!prev) this.claimed.set(t, e.workerId);
+      if (prev && prev !== e.workerId) {
+        this.warnings.push({ target: t, workers: [prev, e.workerId] });
+        this.emit?.("overlap", "sentry", `${prev} & ${e.workerId} both touched ${t}`, { refs: [t] });
+      } else if (!prev) this.claimed.set(t, e.workerId);
     }
   }
 }

@@ -43,7 +43,7 @@ export class ClaudeCodeRunner implements AgentRunner {
     };
     if (this.opts.brain) {
       options.mcpServers = { oracle: this.opts.brain };
-      options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide"];
+      options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide", "mcp__oracle__note"];
     }
     if (gate) {
       // A PreToolUse hook fires for EVERY tool — canUseTool is skipped for read-only tools like Read — so

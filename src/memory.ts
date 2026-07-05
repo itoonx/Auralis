@@ -23,6 +23,21 @@ export interface SearchHit {
   supersededBy?: string; // set when this finding has been superseded by a newer one (still searchable)
 }
 
+// One narrated moment on the activity timeline. `human` is the concise line a person reads; nodeId +
+// parentNode carry the DAG so the causal tree reconstructs without agent bookkeeping. seq/ts are server-set.
+export interface TimelineEvent {
+  seq?: number;
+  runId?: string;
+  project?: string;
+  kind: string; // phase | intent | note | finding | dedup | overlap | repair
+  actor: string;
+  human: string;
+  nodeId?: string;
+  parentNode?: string[];
+  refs?: string[];
+  ts?: string;
+}
+
 export interface MemoryAdapter {
   search(query: string, opts?: { limit?: number; project?: string }): Promise<SearchHit[]>;
   learn(pattern: string, opts?: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled" }): Promise<{ id: string }>;
@@ -35,6 +50,9 @@ export interface MemoryAdapter {
   // Concurrent-dedup claim, resolved by the shared brain so it holds across processes and agent runtimes.
   claim?(scope: string, target: string, by: string): Promise<ClaimResult>;
   claimReset?(scope: string): Promise<void>;
+  // Activity timeline (append-only): record one narrated event; replay a run's events in order.
+  recordEvent?(e: TimelineEvent): Promise<void>;
+  timeline?(opts?: { run?: string; project?: string; limit?: number }): Promise<TimelineEvent[]>;
 }
 
 export class NullMemoryAdapter implements MemoryAdapter {
@@ -65,6 +83,8 @@ export class NullMemoryAdapter implements MemoryAdapter {
   async claimReset(): Promise<void> {
     /* nothing to reset */
   }
+  // No recordEvent/timeline here on purpose: the null control has no shared brain, so it has no timeline —
+  // and `!adapter.recordEvent` is exactly how the fleet skips emitting for the baseline arm.
   async listDocs(): Promise<{ id: string; content: string; tier?: string }[]> {
     return [];
   }
@@ -192,6 +212,29 @@ export class OracleAdapter implements MemoryAdapter {
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) throw new Error(`oracle claim/reset ${res.status}`);
+  }
+
+  // Append one timeline event. Throws on failure like the other adapter calls; the emit helper
+  // (src/narrate.ts) is the layer that swallows it so a run never blocks or breaks on the timeline.
+  async recordEvent(e: TimelineEvent): Promise<void> {
+    const res = await fetch(new URL("/api/event", this.baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ runId: e.runId, project: e.project, kind: e.kind, actor: e.actor, human: e.human, nodeId: e.nodeId, parentNode: e.parentNode, refs: e.refs }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) throw new Error(`oracle event ${res.status}`);
+  }
+
+  async timeline(opts: { run?: string; project?: string; limit?: number } = {}): Promise<TimelineEvent[]> {
+    const u = new URL("/api/timeline", this.baseUrl);
+    if (opts.run) u.searchParams.set("run", opts.run);
+    if (opts.project) u.searchParams.set("project", opts.project);
+    if (opts.limit) u.searchParams.set("limit", String(opts.limit));
+    const res = await fetch(u, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`oracle timeline ${res.status}`);
+    const body = (await res.json()) as { events?: TimelineEvent[] };
+    return body.events ?? [];
   }
 }
 

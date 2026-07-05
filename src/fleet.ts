@@ -10,6 +10,7 @@ import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal } from "./planner";
 import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
+import { makeEmitter } from "./narrate";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -77,9 +78,13 @@ export async function runFleet(
   cfg: FleetCfg,
 ): Promise<{ outcome: FleetOutcome; warnings: number; live: LiveStats }> {
   const env = new AgenticEnvironment();
+  // Activity timeline: one emitter per run arm. Only when the adapter actually persists events (the shared
+  // brain) — the null baseline has no recordEvent, so it emits nothing. Best-effort, never blocks the run.
+  const runId = `${cfg.project}:${label}:${new Date().toISOString()}`;
+  const emit = process.env.AURALIS_TIMELINE !== "0" && adapter.recordEvent ? makeEmitter({ adapter, runId, project: cfg.project }) : undefined;
   const auditor = new Auditor();
   auditor.join(env);
-  const sentry = new Sentry();
+  const sentry = new Sentry(emit);
   sentry.join(env);
   const live = newLiveStats();
   const scope = `${cfg.project}:${label}`; // claims are namespaced per run arm so arms/reruns don't collide
@@ -88,13 +93,15 @@ export async function runFleet(
     // One MCP server PER worker (a single shared instance races on registration under concurrency), all
     // writing the same `live` stats. The claim itself is resolved by the shared brain (adapter.claim) so
     // ownership holds across processes and any agent runtime — not just this fleet's in-process memory.
-    const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live) : undefined;
+    const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live, emit, id) : undefined;
     const claim =
       cfg.workerPull && adapter.claim
         ? async (target: string) => {
             const r = await adapter.claim!(scope, target, id);
-            if (!r.ok) live.skips++;
-            else if (r.fresh) live.claims++;
+            if (!r.ok) {
+              live.skips++;
+              emit?.("dedup", id, `${id} skipped ${target} — ${r.owner} owns it`, { nodeId: id, refs: [target] });
+            } else if (r.fresh) live.claims++;
             return r;
           }
         : undefined;
@@ -105,6 +112,7 @@ export async function runFleet(
   const outcome = await coordinate(nodes, makeWorker, new MemoryLibrarian(adapter, cfg.project), {
     concurrency: cfg.concurrency,
     maxRetries: cfg.maxRetries,
+    emit,
   });
   if (cfg.out) {
     mkdirSync(cfg.out, { recursive: true });

@@ -18,6 +18,7 @@ if (process.env.ORACLE_RESET) {
   db.run("DROP TABLE IF EXISTS docs;");
   db.run("DROP TABLE IF EXISTS docs_fts;");
   db.run("DROP TABLE IF EXISTS edges;");
+  db.run("DROP TABLE IF EXISTS events;");
 }
 db.run(`CREATE TABLE IF NOT EXISTS docs (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, concepts TEXT, project TEXT, source TEXT, created_at TEXT,
@@ -31,6 +32,13 @@ db.run(`CREATE TABLE IF NOT EXISTS edges (
   id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT, predicate TEXT, object TEXT,
   subj_key TEXT, obj_key TEXT, doc_id TEXT, project TEXT, created_at TEXT
 );`);
+// Activity timeline: one narrated event per coordination moment (intent/finding/dedup/overlap/…). Append-
+// only like everything here (no delete route). seq = server-assigned order so same-ms events stay stable;
+// node_id/parent_node carry the DAG so the causal tree reconstructs without any agent bookkeeping.
+db.run(`CREATE TABLE IF NOT EXISTS events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, project TEXT, kind TEXT, actor TEXT,
+  human TEXT, node_id TEXT, parent_node TEXT, refs TEXT, ts TEXT
+);`);
 
 const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier) VALUES (?, ?, ?, ?, ?, ?, ?)");
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
@@ -38,6 +46,7 @@ const supersedeStmt = db.query("UPDATE docs SET superseded_by = ?, superseded_at
 const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
 const getDocStmt = db.query("SELECT id, content, source, superseded_by, project FROM docs WHERE id = ?");
 const insEdge = db.query("INSERT INTO edges (subject, predicate, object, subj_key, obj_key, doc_id, project, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+const insEvent = db.query("INSERT INTO events (run_id, project, kind, actor, human, node_id, parent_node, refs, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq");
 const edgeCountStmt = db.query("SELECT COUNT(*) AS c FROM edges");
 const nodeCountStmt = db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges UNION SELECT obj_key FROM edges)");
 const searchStmt = db.query(
@@ -252,6 +261,57 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as any;
       claims.delete(String(body?.scope ?? "default"));
       return Response.json({ success: true });
+    }
+
+    // Activity timeline — append one narrated event. Best-effort by design (callers never block on it), so
+    // a bad body just 400s and the run carries on.
+    if (req.method === "POST" && url.pathname === "/api/event") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const kind = String(body?.kind ?? "").trim();
+      const human = String(body?.human ?? "").trim();
+      if (!kind || !human) return Response.json({ error: "kind and human are required" }, { status: 400 });
+      const row = insEvent.get(
+        body?.runId ?? null,
+        body?.project ?? null,
+        kind,
+        String(body?.actor ?? ""),
+        human,
+        body?.nodeId ?? null,
+        body?.parentNode != null ? JSON.stringify(body.parentNode) : null,
+        body?.refs != null ? JSON.stringify(body.refs) : null,
+        new Date().toISOString(),
+      ) as { seq: number };
+      return Response.json({ ok: true, seq: row.seq });
+    }
+
+    // Replay a run's timeline in order. run omitted => the newest run for the project (or newest overall).
+    if (req.method === "GET" && url.pathname === "/api/timeline") {
+      let run = url.searchParams.get("run");
+      const project = url.searchParams.get("project");
+      const limit = Math.max(1, Math.min(2000, Number(url.searchParams.get("limit") ?? 500)));
+      if (!run) {
+        const latest = db.query(
+          project ? "SELECT run_id FROM events WHERE project = ? ORDER BY seq DESC LIMIT 1" : "SELECT run_id FROM events ORDER BY seq DESC LIMIT 1",
+        ).get(...(project ? [project] : [])) as any;
+        run = latest?.run_id ?? null;
+      }
+      const cond: string[] = [];
+      const params: any[] = [];
+      if (run) { cond.push("run_id = ?"); params.push(run); }
+      if (project) { cond.push("project = ?"); params.push(project); }
+      let sql = "SELECT seq, run_id, project, kind, actor, human, node_id, parent_node, refs, ts FROM events";
+      if (cond.length) sql += " WHERE " + cond.join(" AND ");
+      sql += " ORDER BY seq LIMIT ?";
+      params.push(limit);
+      const rows = db.query(sql).all(...params) as any[];
+      const events = rows.map((r) => ({
+        seq: r.seq, runId: r.run_id, project: r.project, kind: r.kind, actor: r.actor, human: r.human,
+        nodeId: r.node_id ?? undefined,
+        parentNode: r.parent_node ? JSON.parse(r.parent_node) : undefined,
+        refs: r.refs ? JSON.parse(r.refs) : undefined,
+        ts: r.ts,
+      }));
+      return Response.json({ run, events });
     }
 
     // Bench-only, gated behind ORACLE_ALLOW_RESET (off in normal use → no-delete guarantee unchanged).

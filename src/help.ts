@@ -32,6 +32,7 @@ ${cmd('pnpm recall "<query>"', "what recall hands a worker: flat findings + grap
 ${cmd("pnpm build-graph", "build the knowledge graph from findings (entity/relationship edges)")}
 ${cmd("pnpm distill", "consolidate near-duplicate findings into vetted ones")}
 ${cmd("pnpm decisions", "print the honest ADR log from the brain")}
+${cmd("pnpm timeline", "replay a run's activity timeline — narrated feed + scorecard")}
 ${cmd("pnpm values", "show append-only + supersession (never deletes)")}
  ${dim("— services (usually auto-started) —")}
 ${cmd("pnpm oracle", "run the brain sidecar (oracle-lite) on its own")}
@@ -50,6 +51,7 @@ ${setting("AURALIS_PARALLEL=3", "run each DAG level concurrently (faster; less s
 ${setting("AURALIS_WORKER_PULL", "workers read/write the brain live, mid-task (real-time sharing) — ON by default; =0 to opt out")}
 ${setting("AURALIS_BASELINE=0", "prod mode — skip the A/B baseline arm, run only the shared brain (~2x faster)")}
 ${setting("AURALIS_LOG_TIMING=1", "stream each timing span to stderr; the TIMING summary prints either way")}
+${setting("AURALIS_TIMELINE=0", "opt out of the activity timeline (default on when a brain is present)")}
 ${setting("AURALIS_BUILD_GRAPH=1", "build the graph on ingest during pnpm dev")}
 ${setting("AURALIS_BUILD_GRAPH_LLM", "real predicates via Claude Code — ON by default; =0 for heuristic")}
 ${setting("AURALIS_DISTILL_LLM=1", "distill with Claude Code for real merges (costs)")}

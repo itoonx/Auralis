@@ -5,6 +5,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { OracleAdapter, type MemoryAdapter } from "./memory";
 import { recordDecision, reverseDecision } from "./decision";
+import type { Emit } from "./narrate";
 
 export async function brainSearch(adapter: MemoryAdapter, project: string, query: string): Promise<string> {
   const hits = await adapter.search(query, { project, limit: 5 });
@@ -30,11 +31,22 @@ export interface LiveStats {
 }
 export const newLiveStats = (): LiveStats => ({ searches: 0, hits: 0, learns: 0, claims: 0, skips: 0 });
 
-export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default", stats?: LiveStats) {
+export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default", stats?: LiveStats, emit?: Emit, workerId = "worker") {
   return createSdkMcpServer({
     name: "oracle",
     version: "1.0.0",
     tools: [
+      tool(
+        "note",
+        "Narrate what you're about to do or just realised, in ONE short line, so teammates and a human " +
+          "watching the run can follow your reasoning live. Use it when you start a subtask or change " +
+          "direction. This is for INTENT/progress — record actual findings with learn instead.",
+        { note: z.string().describe("a short, human-readable line about your current plan or progress") },
+        async (args) => {
+          emit?.("note", workerId, args.note, { nodeId: workerId });
+          return { content: [{ type: "text", text: "noted on the timeline" }] };
+        },
+      ),
       tool(
         "search",
         "Search the shared team brain for what teammates already found, BEFORE exploring the codebase yourself.",

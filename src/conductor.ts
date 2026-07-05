@@ -7,6 +7,10 @@ import { buildLevels } from "./dag";
 import type { Worker, MemoryLibrarian } from "./participants";
 import type { Exploration } from "./runner";
 import { log } from "./log";
+import type { Emit } from "./narrate";
+
+// One narrated line: collapse whitespace, keep it short enough to read at a glance.
+const oneLine = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 90);
 
 export interface TaskProvenance {
   task: string;
@@ -55,11 +59,12 @@ export async function coordinate(
   nodes: DagNode[],
   makeWorker: (id: string) => Worker,
   librarian: MemoryLibrarian,
-  opts: { concurrency?: number; maxRetries?: number; critic?: Critic } = {},
+  opts: { concurrency?: number; maxRetries?: number; critic?: Critic; emit?: Emit } = {},
 ): Promise<FleetOutcome> {
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   const maxRetries = Math.max(0, opts.maxRetries ?? 0); // 0 = no self-repair (original behaviour)
   const critic = opts.critic ?? heuristicCritic;
+  const emit = opts.emit; // narrate coordination moments onto the activity timeline (no-op if unset)
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const perWorker: FleetOutcome["perWorker"] = [];
   const provenance: TaskProvenance[] = [];
@@ -67,6 +72,8 @@ export async function coordinate(
   let repairs = 0;
 
   const runNode = async (node: DagNode) => {
+    // intent (A): deterministic "about to do X" — the timeline is complete even if the worker never narrates.
+    emit?.("intent", node.id, `${node.id} starting: ${oneLine(node.question)}`, { nodeId: node.id, parentNode: node.dependsOn });
     const injectEnd = log.start("brain.inject", node.id); // pull: recall + graph-expand before the worker runs
     const ctx = await librarian.injectFor(node.question);
     injectEnd({ hits: ctx.hitIds.length });
@@ -74,20 +81,25 @@ export async function coordinate(
     let verdict = critic.grade(node.question, res.result);
     let attempts = 1;
     while (!verdict.ok && attempts <= maxRetries) {
+      emit?.("repair", node.id, `${node.id} retry: ${verdict.reason}`, { nodeId: node.id });
       const feedback = `A reviewer rejected the previous attempt (${verdict.reason}). Answer the task directly and concretely.`;
       const retryContext = ctx.context ? `${ctx.context}\n\n${feedback}` : feedback;
       res = await log.time("worker.run", `${node.id}#retry${attempts}`, () => makeWorker(node.id).run(node.question, retryContext));
       verdict = critic.grade(node.question, res.result);
       attempts++;
     }
+    const targets = [...new Set(res.explored.map((e) => e.target))];
+    emit?.("finding", node.id, `${node.id}: ${oneLine(res.result)} (${targets.length} files)`, { nodeId: node.id, parentNode: node.dependsOn, refs: targets });
     const captureEnd = log.start("brain.capture", node.id); // push: learn + (optional) graph-build
     const learnedId = await librarian.capture(node.id, node.question, res);
     captureEnd();
     return { node, ctx, res, learnedId, attempts };
   };
 
-  for (const levelIds of buildLevels(nodes)) {
-    const levelNodes = levelIds.map((id) => byId.get(id)!);
+  const levels = buildLevels(nodes);
+  for (let li = 0; li < levels.length; li++) {
+    const levelNodes = levels[li].map((id) => byId.get(id)!);
+    emit?.("phase", "conductor", `level ${li + 1}/${levels.length} · ${levelNodes.length} task(s)`);
     const done = await mapWithConcurrency(levelNodes, concurrency, runNode);
     for (const r of done) {
       if (r.ctx.hitIds.length > 0) reuses++;
