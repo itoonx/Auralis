@@ -28,7 +28,7 @@ export class ClaudeCodeRunner implements AgentRunner {
   // mcp__oracle__search / mcp__oracle__learn directly. MCP tool calls are NOT counted as exploration.
   // `claim` is the concurrent-dedup gate: when set, every Read is routed through canUseTool and DENIED
   // if a teammate already owns that file — deterministic prevention, not a request the LLM may ignore.
-  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; claim?: (target: string) => { ok: boolean; owner: string } }) {}
+  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; claim?: (target: string) => Promise<{ ok: boolean; owner: string }> }) {}
 
   async run(prompt: string): Promise<RunResult> {
     const explored: Exploration[] = [];
@@ -56,7 +56,7 @@ export class ClaudeCodeRunner implements AgentRunner {
               async (input: any) => {
                 const path = input?.tool_input?.file_path;
                 if (typeof path === "string") {
-                  const r = gate(path);
+                  const r = await gate(path);
                   if (!r.ok) {
                     denied.add(path);
                     return {

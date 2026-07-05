@@ -9,7 +9,7 @@ import { ClaudeCodeRunner } from "./runner";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal } from "./planner";
-import { brainMcpServer, newLiveStats, resolveClaim, type LiveStats } from "./brain-mcp";
+import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -82,20 +82,22 @@ export async function runFleet(
   const sentry = new Sentry();
   sentry.join(env);
   const live = newLiveStats();
-  const claimed = new Map<string, string>(); // shared claim registry: which worker owns which file (concurrent-dedup gate)
+  const scope = `${cfg.project}:${label}`; // claims are namespaced per run arm so arms/reruns don't collide
+  if (cfg.workerPull && adapter.claimReset) await adapter.claimReset(scope);
   const makeWorker = (id: string) => {
     // One MCP server PER worker (a single shared instance races on registration under concurrency), all
-    // writing the same `live` stats. The claim gate shares the one `claimed` map so owners are global.
+    // writing the same `live` stats. The claim itself is resolved by the shared brain (adapter.claim) so
+    // ownership holds across processes and any agent runtime — not just this fleet's in-process memory.
     const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live) : undefined;
-    const claim = cfg.workerPull
-      ? (target: string) => {
-          const wasClaimed = claimed.has(target);
-          const r = resolveClaim(claimed, target, id);
-          if (!r.ok) live.skips++;
-          else if (!wasClaimed) live.claims++;
-          return r;
-        }
-      : undefined;
+    const claim =
+      cfg.workerPull && adapter.claim
+        ? async (target: string) => {
+            const r = await adapter.claim!(scope, target, id);
+            if (!r.ok) live.skips++;
+            else if (r.fresh) live.claims++;
+            return r;
+          }
+        : undefined;
     const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain, claim }), !!brain);
     w.join(env);
     return w;

@@ -30,19 +30,6 @@ export interface LiveStats {
 }
 export const newLiveStats = (): LiveStats => ({ searches: 0, hits: 0, learns: 0, claims: 0, skips: 0 });
 
-// Cooperative claim: the first worker to claim a target owns it; a later, DIFFERENT worker is told to
-// skip (and reuse the owner's finding instead) — this prevents two teammates exploring the same thing at
-// once, which pull-after-the-fact can't do when both start cold and concurrent. Re-claiming your own
-// target is idempotent so a worker can revisit its own files. Node's single thread makes this atomic.
-export function resolveClaim(claimed: Map<string, string>, target: string, by: string): { ok: boolean; owner: string } {
-  const owner = claimed.get(target);
-  if (!owner) {
-    claimed.set(target, by);
-    return { ok: true, owner: by };
-  }
-  return { ok: owner === by, owner };
-}
-
 export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default", stats?: LiveStats) {
   return createSdkMcpServer({
     name: "oracle",

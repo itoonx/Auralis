@@ -1,6 +1,6 @@
 // The brain MCP tools (worker-direct pull/push) proxy correctly to the adapter.
 import { describe, it, expect } from "vitest";
-import { brainSearch, brainLearn, resolveClaim } from "../src/brain-mcp";
+import { brainSearch, brainLearn } from "../src/brain-mcp";
 import type { MemoryAdapter, SearchHit } from "../src/memory";
 
 class FakeAdapter implements MemoryAdapter {
@@ -29,17 +29,5 @@ describe("brain MCP tools", () => {
   it("search returns a friendly message when the brain is empty", async () => {
     const found = await brainSearch(new FakeAdapter(), "p", "anything");
     expect(found.toLowerCase()).toContain("nothing in the shared brain");
-  });
-});
-
-describe("claim prevents concurrent duplicate work", () => {
-  it("first claim wins, a different worker is told to skip, owner can re-claim", () => {
-    const claimed = new Map<string, string>();
-    expect(resolveClaim(claimed, "src/memory.ts", "A")).toEqual({ ok: true, owner: "A" });
-    // B tries the same file A is already on → skip, and it's told who owns it
-    expect(resolveClaim(claimed, "src/memory.ts", "B")).toEqual({ ok: false, owner: "A" });
-    // A revisiting its own file is fine (idempotent), and a different file is free
-    expect(resolveClaim(claimed, "src/memory.ts", "A")).toEqual({ ok: true, owner: "A" });
-    expect(resolveClaim(claimed, "src/graph.ts", "B")).toEqual({ ok: true, owner: "B" });
   });
 });

@@ -6,6 +6,7 @@
 // obsolescence is SUPERSESSION. FTS writes are synchronous (read-after-write).
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
+import { resolveClaim } from "../src/claim";
 
 const PORT = Number(process.env.ORACLE_PORT ?? 47778);
 const DB_PATH = process.env.ORACLE_DB ?? ".auralis-out/brain.sqlite";
@@ -173,6 +174,16 @@ async function vectorReset() {
 await initEmbedder();
 await initVectors();
 
+// Concurrent-dedup claim registry — the ONE shared, runtime-agnostic point every worker/process resolves
+// against (the enforcement POLICY is central; each agent runtime only needs a thin call in). In-memory
+// and ephemeral, scoped per run so a fresh run isn't blocked by a previous one's claims.
+const claims = new Map<string, Map<string, string>>(); // scope -> (target -> owning worker)
+function claimIn(scope: string): Map<string, string> {
+  let m = claims.get(scope);
+  if (!m) claims.set(scope, (m = new Map()));
+  return m;
+}
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
@@ -225,6 +236,22 @@ const server = Bun.serve({
       if (!oldId || !newId) return Response.json({ error: "oldId and newId are required" }, { status: 400 });
       supersedeStmt.run(newId, new Date().toISOString(), body?.reason ?? null, oldId);
       return Response.json({ success: true, oldId, newId });
+    }
+
+    // Concurrent-dedup claim: first worker to claim a (scope,target) owns it; a later, different worker is
+    // told to skip. This is the shared enforcement point for ANY agent runtime, not just the Claude hook.
+    if (req.method === "POST" && url.pathname === "/api/claim") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const scope = String(body?.scope ?? "default");
+      const target = String(body?.target ?? "");
+      const by = String(body?.by ?? "");
+      if (!target || !by) return Response.json({ error: "target and by are required" }, { status: 400 });
+      return Response.json(resolveClaim(claimIn(scope), target, by));
+    }
+    if (req.method === "POST" && url.pathname === "/api/claim/reset") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      claims.delete(String(body?.scope ?? "default"));
+      return Response.json({ success: true });
     }
 
     // Bench-only, gated behind ORACLE_ALLOW_RESET (off in normal use → no-delete guarantee unchanged).

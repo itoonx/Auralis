@@ -2,6 +2,7 @@
 // values layer surfaces here as optional supersede()/count(): the brain is append-only, so obsolete
 // findings are superseded (flagged), never deleted. NullMemoryAdapter is the no-shared-memory control.
 import { log } from "./log";
+import type { ClaimResult } from "./claim";
 
 export interface Triplet {
   subject: string;
@@ -31,6 +32,9 @@ export interface MemoryAdapter {
   graph?(entity: string, project?: string): Promise<{ edges: GraphEdge[]; entities: string[] }>; // 1-hop neighborhood
   count?(): Promise<number>;
   reset?(): Promise<void>;
+  // Concurrent-dedup claim, resolved by the shared brain so it holds across processes and agent runtimes.
+  claim?(scope: string, target: string, by: string): Promise<ClaimResult>;
+  claimReset?(scope: string): Promise<void>;
 }
 
 export class NullMemoryAdapter implements MemoryAdapter {
@@ -53,6 +57,12 @@ export class NullMemoryAdapter implements MemoryAdapter {
     return 0;
   }
   async reset(): Promise<void> {
+    /* nothing to reset */
+  }
+  async claim(_scope: string, _target: string, by: string): Promise<ClaimResult> {
+    return { ok: true, owner: by, fresh: true }; // no shared brain → no coordination; every target is "yours"
+  }
+  async claimReset(): Promise<void> {
     /* nothing to reset */
   }
   async listDocs(): Promise<{ id: string; content: string; tier?: string }[]> {
@@ -158,6 +168,30 @@ export class OracleAdapter implements MemoryAdapter {
   async reset(): Promise<void> {
     const res = await fetch(new URL("/api/reset", this.baseUrl), { method: "POST", signal: AbortSignal.timeout(5_000) });
     if (!res.ok) throw new Error(`oracle reset ${res.status} (is ORACLE_ALLOW_RESET set on the sidecar?)`);
+  }
+
+  // Concurrent-dedup claim, resolved server-side so it is shared across processes and agent runtimes.
+  async claim(scope: string, target: string, by: string): Promise<ClaimResult> {
+    const res = await log.time("oracle.claim", scope, () =>
+      fetch(new URL("/api/claim", this.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope, target, by }),
+        signal: AbortSignal.timeout(5_000),
+      }),
+    );
+    if (!res.ok) throw new Error(`oracle claim ${res.status}`);
+    return (await res.json()) as ClaimResult;
+  }
+
+  async claimReset(scope: string): Promise<void> {
+    const res = await fetch(new URL("/api/claim/reset", this.baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) throw new Error(`oracle claim/reset ${res.status}`);
   }
 }
 
