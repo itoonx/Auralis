@@ -9,7 +9,7 @@ import { ClaudeCodeRunner } from "./runner";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal } from "./planner";
-import { brainMcpServer } from "./brain-mcp";
+import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -75,15 +75,16 @@ export async function runFleet(
   adapter: MemoryAdapter,
   nodes: DagNode[],
   cfg: FleetCfg,
-): Promise<{ outcome: FleetOutcome; warnings: number }> {
+): Promise<{ outcome: FleetOutcome; warnings: number; live: LiveStats }> {
   const env = new AgenticEnvironment();
   const auditor = new Auditor();
   auditor.join(env);
   const sentry = new Sentry();
   sentry.join(env);
-  const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project) : undefined;
+  const live = newLiveStats();
+  const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live) : undefined;
   const makeWorker = (id: string) => {
-    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain }));
+    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain }), !!brain);
     w.join(env);
     return w;
   };
@@ -96,5 +97,5 @@ export async function runFleet(
     writeFileSync(`${cfg.out}/trace-${label}.jsonl`, auditor.toJSONL());
     writeFileSync(`${cfg.out}/provenance-${label}.json`, JSON.stringify(outcome.provenance, null, 2));
   }
-  return { outcome, warnings: sentry.warnings.length };
+  return { outcome, warnings: sentry.warnings.length, live };
 }

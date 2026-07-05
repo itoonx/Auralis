@@ -1,6 +1,7 @@
 // The shared brain, behind an adapter. The interface stays swappable; oracle-lite is one impl. The
 // values layer surfaces here as optional supersede()/count(): the brain is append-only, so obsolete
 // findings are superseded (flagged), never deleted. NullMemoryAdapter is the no-shared-memory control.
+import { log } from "./log";
 
 export interface Triplet {
   subject: string;
@@ -72,7 +73,7 @@ export class OracleAdapter implements MemoryAdapter {
     u.searchParams.set("mode", "hybrid");
     u.searchParams.set("limit", String(opts.limit ?? 5));
     if (opts.project) u.searchParams.set("project", opts.project);
-    const res = await fetch(u, { signal: AbortSignal.timeout(15_000) });
+    const res = await log.time("oracle.search", opts.project, () => fetch(u, { signal: AbortSignal.timeout(15_000) }));
     if (!res.ok) throw new Error(`oracle search ${res.status}: ${await res.text()}`);
     const body = (await res.json()) as { results?: any[] };
     return (body.results ?? []).map((r) => ({
@@ -89,12 +90,14 @@ export class OracleAdapter implements MemoryAdapter {
     pattern: string,
     opts: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled" } = {},
   ): Promise<{ id: string }> {
-    const res = await fetch(new URL(this.learnPath, this.baseUrl), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pattern, concepts: opts.concepts, project: opts.project, source: opts.source ?? "auralis", tier: opts.tier }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const res = await log.time("oracle.learn", opts.project, () =>
+      fetch(new URL(this.learnPath, this.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern, concepts: opts.concepts, project: opts.project, source: opts.source ?? "auralis", tier: opts.tier }),
+        signal: AbortSignal.timeout(30_000),
+      }),
+    );
     if (!res.ok) throw new Error(`oracle learn ${res.status}: ${await res.text()}`);
     const body = (await res.json()) as { id?: string };
     return { id: String(body.id ?? "") };

@@ -18,7 +18,17 @@ export async function brainLearn(adapter: MemoryAdapter, project: string, findin
   return id ? `saved to the shared brain (${id})` : "saved";
 }
 
-export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default") {
+// Live counters so a run can SEE the real-time channel working: how often workers pulled the brain
+// mid-task, how often a pull actually surfaced a teammate's finding (hit), and how often they pushed.
+// Without this the live pull/push is invisible — provenance only sees the once-at-start injection.
+export interface LiveStats {
+  searches: number;
+  hits: number;
+  learns: number;
+}
+export const newLiveStats = (): LiveStats => ({ searches: 0, hits: 0, learns: 0 });
+
+export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default", stats?: LiveStats) {
   return createSdkMcpServer({
     name: "oracle",
     version: "1.0.0",
@@ -27,13 +37,21 @@ export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), pro
         "search",
         "Search the shared team brain for what teammates already found, BEFORE exploring the codebase yourself.",
         { query: z.string().describe("what to look up in the shared brain") },
-        async (args) => ({ content: [{ type: "text", text: await brainSearch(adapter, project, args.query) }] }),
+        async (args) => {
+          const text = await brainSearch(adapter, project, args.query);
+          if (stats) { stats.searches++; if (!text.startsWith("(nothing")) stats.hits++; } // hit = a teammate's finding came back
+          return { content: [{ type: "text", text }] };
+        },
       ),
       tool(
         "learn",
         "Record a finding into the shared team brain so teammates and future runs can reuse it.",
         { finding: z.string().describe("the finding to remember") },
-        async (args) => ({ content: [{ type: "text", text: await brainLearn(adapter, project, args.finding) }] }),
+        async (args) => {
+          const text = await brainLearn(adapter, project, args.finding);
+          if (stats) stats.learns++;
+          return { content: [{ type: "text", text }] };
+        },
       ),
       tool(
         "decide",

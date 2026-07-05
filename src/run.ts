@@ -8,6 +8,7 @@ import { ensureOracle, resolveTasks, runFleet } from "./fleet";
 import { explainProvenance } from "./audit";
 import { buildLevels } from "./dag";
 import { fleetRedundantCount, reductionPct } from "./metrics";
+import { log } from "./log";
 
 const PROJECT_DIR = resolve(process.env.AURALIS_PROJECT_DIR ?? process.cwd());
 const PROJECT = process.env.AURALIS_PROJECT ?? "default";
@@ -16,24 +17,25 @@ const MAX_TURNS = Number(process.env.AURALIS_MAX_TURNS ?? 10);
 const PLAN_TURNS = Number(process.env.AURALIS_PLAN_TURNS ?? 6);
 const CONCURRENCY = Number(process.env.AURALIS_PARALLEL ?? 1);
 const RETRIES = Number(process.env.AURALIS_RETRIES ?? 1); // self-repair retries per task
-const WORKER_PULL = process.env.AURALIS_WORKER_PULL === "1"; // workers call the brain directly (MCP)
+const WORKER_PULL = process.env.AURALIS_WORKER_PULL !== "0"; // workers read/write the brain live, mid-task (real-time sharing); =0 to opt out
 const GOAL =
   process.env.AURALIS_GOAL ??
   "Understand this codebase end-to-end: its architecture, core modules, primary end-to-end flow, and error handling.";
 
 async function main() {
   console.log(`target project: ${PROJECT_DIR}  ·  parallel=${CONCURRENCY}  ·  worker-pull=${WORKER_PULL}`);
-  const stop = await ensureOracle();
+  log.reset(`${OUT}/timing.jsonl`);
+  const stop = await log.time("oracle.boot", undefined, () => ensureOracle());
   try {
     console.log("· resolving tasks…");
-    const nodes = await resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS);
+    const nodes = await log.time("plan", undefined, () => resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS));
     console.log(`${nodes.length} task(s), ${buildLevels(nodes).length} level(s): ${nodes.map((n) => n.id).join(", ")}`);
     const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, workerPull: WORKER_PULL, out: OUT };
 
     console.log("▶ baseline (no shared memory)…");
-    const base = await runFleet("baseline", new NullMemoryAdapter(), nodes, cfg);
+    const base = await log.time("arm.baseline", undefined, () => runFleet("baseline", new NullMemoryAdapter(), nodes, cfg));
     console.log("▶ shared brain…");
-    const shared = await runFleet("shared", new OracleAdapter(), nodes, cfg);
+    const shared = await log.time("arm.shared", undefined, () => runFleet("shared", new OracleAdapter(), nodes, cfg));
 
     const baseRed = fleetRedundantCount(base.outcome.perWorker.map((w) => w.explored));
     const sharedRed = fleetRedundantCount(shared.outcome.perWorker.map((w) => w.explored));
@@ -42,11 +44,13 @@ async function main() {
     console.log("\n─── auralis fleet run ───");
     console.log(`baseline: fleet-redundant=${baseRed}, sentry overlap warnings=${base.warnings}`);
     console.log(`shared  : fleet-redundant=${sharedRed}, sentry overlap warnings=${shared.warnings}, reuses=${shared.outcome.reuses}, self-repairs=${shared.outcome.repairs}`);
+    console.log(`realtime: live-pushes=${shared.live.learns}, live-pulls=${shared.live.hits}/${shared.live.searches} that hit a teammate's finding mid-task`);
     console.log(`redundancy reduction: ${(pct * 100).toFixed(1)}%   (target ≥ 30%)`);
     console.log("\n" + explainProvenance(shared.outcome.provenance));
 
     const pass = pct >= 0.3 && shared.outcome.reuses >= 1;
     console.log(pass ? "\n✅ fleet coordination met on live data" : `\n⚠️  not met this run — see ${OUT}`);
+    console.log("\n" + log.summary());
     process.exitCode = pass ? 0 : 1;
   } finally {
     stop();

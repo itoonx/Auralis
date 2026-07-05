@@ -5,6 +5,7 @@ import { AgenticEnvironment, BaseParticipant, sendMessage } from "@mozaik-ai/cor
 import type { AgentRunner, RunResult, Exploration } from "./runner";
 import type { MemoryAdapter } from "./memory";
 import { buildGraph, graphContext } from "./graph";
+import { log } from "./log";
 
 export interface TraceEvent {
   kind: string;
@@ -22,16 +23,33 @@ export class Worker extends BaseParticipant {
     public readonly id: string,
     private readonly env: AgenticEnvironment,
     private readonly runner: AgentRunner,
+    // livePull = the runner has the brain MCP tools, so the worker can read/write the shared brain
+    // mid-task. That's what turns once-at-start injection into real-time sharing: a sibling running RIGHT
+    // NOW commits a finding and this worker sees it on its next search, instead of only at the next level.
+    private readonly livePull = false,
   ) {
     super();
   }
 
-  async run(question: string, injectedContext: string): Promise<RunResult> {
-    const prompt = injectedContext
+  private buildPrompt(question: string, injectedContext: string): string {
+    if (this.livePull) {
+      const seed = injectedContext ? `\n\nAlready in the shared brain when you started:\n${injectedContext}` : "";
+      return (
+        `You are analysing a codebase as part of a team working AT THE SAME TIME. A shared brain lets you read and write teammates' findings mid-task:\n` +
+        `• BEFORE you Read/Grep/Glob a file, call mcp__oracle__search for it — a teammate may have JUST covered it. If so, trust their finding and do NOT re-read it.\n` +
+        `• The MOMENT you learn something worth sharing, call mcp__oracle__learn with it — don't wait until the end, or teammates in flight will miss it.\n` +
+        `Only explore what is genuinely new after checking the brain.${seed}\n\n---\nYour task: ${question}`
+      );
+    }
+    return injectedContext
       ? `You are analysing a codebase. A teammate has ALREADY explored part of it and recorded the findings below. ` +
         `Do NOT re-read files your teammate already covered — trust their findings and only explore what is genuinely new to YOUR task.\n\n` +
         `Teammate's findings:\n${injectedContext}\n\n---\nYour task: ${question}`
       : `Analyse this codebase and answer concisely. Task: ${question}`;
+  }
+
+  async run(question: string, injectedContext: string): Promise<RunResult> {
+    const prompt = this.buildPrompt(question, injectedContext);
     const res = await this.runner.run(prompt);
     sendMessage(
       this.env,
@@ -100,7 +118,7 @@ export class MemoryLibrarian {
     // Graph-expand (graph-linked recall): seed from the question + top hits so recall surfaces what CONNECTS
     // to what the query is about, even with no shared keywords. No-op when the brain has no graph.
     const seedText = `${question}\n${hits.map((h) => h.content).join("\n")}`;
-    const gc = await graphContext(this.adapter, this.project, seedText);
+    const gc = await log.time("graph.expand", this.project, () => graphContext(this.adapter, this.project, seedText));
     const context = [flat, gc.text].filter(Boolean).join("\n\n");
     const hitIds = [...new Set([...hits.map((h) => h.id).filter(Boolean), ...gc.docIds])];
     return { context, hitIds };
@@ -119,7 +137,7 @@ export class MemoryLibrarian {
     if (id) this.learnedIds.push(id);
     // Graph memory (opt-in, best-effort): turn the finding into entity/relationship edges. Never breaks capture.
     if (id && process.env.AURALIS_BUILD_GRAPH === "1") {
-      try { await buildGraph(this.adapter, id, this.project, res.result); } catch { /* graph is best-effort */ }
+      try { await log.time("graph.build", workerId, () => buildGraph(this.adapter, id, this.project, res.result)); } catch { /* graph is best-effort */ }
     }
     return id;
   }

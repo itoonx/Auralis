@@ -6,6 +6,7 @@ import type { DagNode } from "./dag";
 import { buildLevels } from "./dag";
 import type { Worker, MemoryLibrarian } from "./participants";
 import type { Exploration } from "./runner";
+import { log } from "./log";
 
 export interface TaskProvenance {
   task: string;
@@ -66,18 +67,22 @@ export async function coordinate(
   let repairs = 0;
 
   const runNode = async (node: DagNode) => {
+    const injectEnd = log.start("brain.inject", node.id); // pull: recall + graph-expand before the worker runs
     const ctx = await librarian.injectFor(node.question);
-    let res = await makeWorker(node.id).run(node.question, ctx.context); // emits finding on the bus
+    injectEnd({ hits: ctx.hitIds.length });
+    let res = await log.time("worker.run", node.id, () => makeWorker(node.id).run(node.question, ctx.context)); // emits finding on the bus
     let verdict = critic.grade(node.question, res.result);
     let attempts = 1;
     while (!verdict.ok && attempts <= maxRetries) {
       const feedback = `A reviewer rejected the previous attempt (${verdict.reason}). Answer the task directly and concretely.`;
       const retryContext = ctx.context ? `${ctx.context}\n\n${feedback}` : feedback;
-      res = await makeWorker(node.id).run(node.question, retryContext);
+      res = await log.time("worker.run", `${node.id}#retry${attempts}`, () => makeWorker(node.id).run(node.question, retryContext));
       verdict = critic.grade(node.question, res.result);
       attempts++;
     }
+    const captureEnd = log.start("brain.capture", node.id); // push: learn + (optional) graph-build
     const learnedId = await librarian.capture(node.id, node.question, res);
+    captureEnd();
     return { node, ctx, res, learnedId, attempts };
   };
 
