@@ -9,7 +9,7 @@ import { ClaudeCodeRunner } from "./runner";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal } from "./planner";
-import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
+import { brainMcpServer, newLiveStats, resolveClaim, type LiveStats } from "./brain-mcp";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -82,9 +82,21 @@ export async function runFleet(
   const sentry = new Sentry();
   sentry.join(env);
   const live = newLiveStats();
-  const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live) : undefined;
+  const claimed = new Map<string, string>(); // shared claim registry: which worker owns which file (concurrent-dedup gate)
   const makeWorker = (id: string) => {
-    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain }), !!brain);
+    // One MCP server PER worker (a single shared instance races on registration under concurrency), all
+    // writing the same `live` stats. The claim gate shares the one `claimed` map so owners are global.
+    const brain = cfg.workerPull ? brainMcpServer(adapter, cfg.project, live) : undefined;
+    const claim = cfg.workerPull
+      ? (target: string) => {
+          const wasClaimed = claimed.has(target);
+          const r = resolveClaim(claimed, target, id);
+          if (!r.ok) live.skips++;
+          else if (!wasClaimed) live.claims++;
+          return r;
+        }
+      : undefined;
+    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain, claim }), !!brain);
     w.join(env);
     return w;
   };

@@ -48,6 +48,8 @@ ${setting("AURALIS_GOAL", "the analysis goal for pnpm dev")}
 ${setting("AURALIS_SEMANTIC=1", "real sentence-embedding recall (starts the embed sidecar)")}
 ${setting("AURALIS_PARALLEL=3", "run each DAG level concurrently (faster; less sharing)")}
 ${setting("AURALIS_WORKER_PULL", "workers read/write the brain live, mid-task (real-time sharing) — ON by default; =0 to opt out")}
+${setting("AURALIS_BASELINE=0", "prod mode — skip the A/B baseline arm, run only the shared brain (~2x faster)")}
+${setting("AURALIS_LOG_TIMING=1", "stream each timing span to stderr; the TIMING summary prints either way")}
 ${setting("AURALIS_BUILD_GRAPH=1", "build the graph on ingest during pnpm dev")}
 ${setting("AURALIS_BUILD_GRAPH_LLM", "real predicates via Claude Code — ON by default; =0 for heuristic")}
 ${setting("AURALIS_DISTILL_LLM=1", "distill with Claude Code for real merges (costs)")}

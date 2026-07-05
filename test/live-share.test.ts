@@ -24,6 +24,7 @@ describe("worker real-time sharing", () => {
     await w.run("map the auth flow", "");
     expect(runner.prompt).toContain("mcp__oracle__search");
     expect(runner.prompt).toContain("mcp__oracle__learn");
+    expect(runner.prompt).toContain('worker "A"'); // worker knows its own id
     expect(runner.prompt).toMatch(/AT THE SAME TIME/i);
   });
 

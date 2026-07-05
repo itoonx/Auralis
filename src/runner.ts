@@ -26,10 +26,14 @@ function targetOf(name: string, input: any): string | undefined {
 export class ClaudeCodeRunner implements AgentRunner {
   // `brain` is an in-process MCP server (from brainMcpServer). When set, the worker can call
   // mcp__oracle__search / mcp__oracle__learn directly. MCP tool calls are NOT counted as exploration.
-  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown }) {}
+  // `claim` is the concurrent-dedup gate: when set, every Read is routed through canUseTool and DENIED
+  // if a teammate already owns that file — deterministic prevention, not a request the LLM may ignore.
+  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; claim?: (target: string) => { ok: boolean; owner: string } }) {}
 
   async run(prompt: string): Promise<RunResult> {
     const explored: Exploration[] = [];
+    const denied = new Set<string>(); // Reads the claim gate blocked — a teammate owns the file, so it never happened
+    const gate = this.opts.claim;
     let result = "";
     const options: any = {
       cwd: this.opts.cwd,
@@ -40,6 +44,36 @@ export class ClaudeCodeRunner implements AgentRunner {
     if (this.opts.brain) {
       options.mcpServers = { oracle: this.opts.brain };
       options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide"];
+    }
+    if (gate) {
+      // A PreToolUse hook fires for EVERY tool — canUseTool is skipped for read-only tools like Read — so
+      // this is the only place we can actually BLOCK a Read of a file a teammate already owns (real dedup).
+      options.hooks = {
+        PreToolUse: [
+          {
+            matcher: "Read",
+            hooks: [
+              async (input: any) => {
+                const path = input?.tool_input?.file_path;
+                if (typeof path === "string") {
+                  const r = gate(path);
+                  if (!r.ok) {
+                    denied.add(path);
+                    return {
+                      hookSpecificOutput: {
+                        hookEventName: "PreToolUse",
+                        permissionDecision: "deny",
+                        permissionDecisionReason: `A teammate (${r.owner}) already owns ${path}. Use mcp__oracle__search to reuse their finding instead of reading it.`,
+                      },
+                    };
+                  }
+                }
+                return { continue: true };
+              },
+            ],
+          },
+        ],
+      };
     }
     try {
       for await (const m of query({ prompt, options })) {
@@ -60,7 +94,8 @@ export class ClaudeCodeRunner implements AgentRunner {
       // throw is what the redundancy metric needs, so keep it and note the early stop.
       if (!result) result = `(worker stopped early: ${(err as Error).message})`;
     }
-    return { result, explored };
+    // A blocked Read never happened — drop it so redundancy counts prevention, not a phantom read.
+    return { result, explored: denied.size ? explored.filter((e) => !denied.has(e.target)) : explored };
   }
 }
 

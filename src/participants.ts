@@ -35,8 +35,8 @@ export class Worker extends BaseParticipant {
     if (this.livePull) {
       const seed = injectedContext ? `\n\nAlready in the shared brain when you started:\n${injectedContext}` : "";
       return (
-        `You are analysing a codebase as part of a team working AT THE SAME TIME. A shared brain lets you read and write teammates' findings mid-task:\n` +
-        `• BEFORE you Read/Grep/Glob a file, call mcp__oracle__search for it — a teammate may have JUST covered it. If so, trust their finding and do NOT re-read it.\n` +
+        `You are worker "${this.id}", analysing a codebase as part of a team working AT THE SAME TIME. Files are auto-assigned so two teammates never read the same one:\n` +
+        `• If a Read is BLOCKED because a teammate already owns that file, do NOT retry it — call mcp__oracle__search for that file and reuse their finding instead.\n` +
         `• The MOMENT you learn something worth sharing, call mcp__oracle__learn with it — don't wait until the end, or teammates in flight will miss it.\n` +
         `Only explore what is genuinely new after checking the brain.${seed}\n\n---\nYour task: ${question}`
       );

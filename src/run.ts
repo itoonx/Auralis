@@ -18,12 +18,13 @@ const PLAN_TURNS = Number(process.env.AURALIS_PLAN_TURNS ?? 6);
 const CONCURRENCY = Number(process.env.AURALIS_PARALLEL ?? 1);
 const RETRIES = Number(process.env.AURALIS_RETRIES ?? 1); // self-repair retries per task
 const WORKER_PULL = process.env.AURALIS_WORKER_PULL !== "0"; // workers read/write the brain live, mid-task (real-time sharing); =0 to opt out
+const RUN_BASELINE = process.env.AURALIS_BASELINE !== "0"; // prod mode (=0): skip the baseline A/B arm — run only the shared brain
 const GOAL =
   process.env.AURALIS_GOAL ??
   "Understand this codebase end-to-end: its architecture, core modules, primary end-to-end flow, and error handling.";
 
 async function main() {
-  console.log(`target project: ${PROJECT_DIR}  ·  parallel=${CONCURRENCY}  ·  worker-pull=${WORKER_PULL}`);
+  console.log(`target project: ${PROJECT_DIR}  ·  parallel=${CONCURRENCY}  ·  worker-pull=${WORKER_PULL}  ·  baseline=${RUN_BASELINE}`);
   log.reset(`${OUT}/timing.jsonl`);
   const stop = await log.time("oracle.boot", undefined, () => ensureOracle());
   try {
@@ -32,23 +33,32 @@ async function main() {
     console.log(`${nodes.length} task(s), ${buildLevels(nodes).length} level(s): ${nodes.map((n) => n.id).join(", ")}`);
     const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, workerPull: WORKER_PULL, out: OUT };
 
-    console.log("▶ baseline (no shared memory)…");
-    const base = await log.time("arm.baseline", undefined, () => runFleet("baseline", new NullMemoryAdapter(), nodes, cfg));
-    console.log("▶ shared brain…");
-    const shared = await log.time("arm.shared", undefined, () => runFleet("shared", new OracleAdapter(), nodes, cfg));
+    // The baseline is the A/B control that MEASURES the brain's value — pure overhead for a real run.
+    // Prod mode (AURALIS_BASELINE=0) skips it and runs only the shared brain, roughly halving wall time.
+    let baseRed: number | undefined;
+    let baseWarnings = 0;
+    if (RUN_BASELINE) {
+      console.log("▶ baseline (no shared memory)…");
+      const base = await log.time("arm.baseline", undefined, () => runFleet("baseline", new NullMemoryAdapter(), nodes, cfg));
+      baseRed = fleetRedundantCount(base.outcome.perWorker.map((w) => w.explored));
+      baseWarnings = base.warnings;
+    }
 
-    const baseRed = fleetRedundantCount(base.outcome.perWorker.map((w) => w.explored));
+    console.log(RUN_BASELINE ? "▶ shared brain…" : "▶ shared brain (prod — no baseline)…");
+    const shared = await log.time("arm.shared", undefined, () => runFleet("shared", new OracleAdapter(), nodes, cfg));
     const sharedRed = fleetRedundantCount(shared.outcome.perWorker.map((w) => w.explored));
-    const pct = reductionPct(baseRed, sharedRed);
 
     console.log("\n─── auralis fleet run ───");
-    console.log(`baseline: fleet-redundant=${baseRed}, sentry overlap warnings=${base.warnings}`);
+    if (baseRed !== undefined) console.log(`baseline: fleet-redundant=${baseRed}, sentry overlap warnings=${baseWarnings}`);
     console.log(`shared  : fleet-redundant=${sharedRed}, sentry overlap warnings=${shared.warnings}, reuses=${shared.outcome.reuses}, self-repairs=${shared.outcome.repairs}`);
-    console.log(`realtime: live-pushes=${shared.live.learns}, live-pulls=${shared.live.hits}/${shared.live.searches} that hit a teammate's finding mid-task`);
-    console.log(`redundancy reduction: ${(pct * 100).toFixed(1)}%   (target ≥ 30%)`);
+    console.log(`realtime: live-pushes=${shared.live.learns}, live-pulls=${shared.live.hits}/${shared.live.searches} hit, claims=${shared.live.claims}, prevented-dupes=${shared.live.skips}`);
+    if (baseRed !== undefined) console.log(`redundancy reduction: ${(reductionPct(baseRed, sharedRed) * 100).toFixed(1)}%   (target ≥ 30%)`);
     console.log("\n" + explainProvenance(shared.outcome.provenance));
 
-    const pass = pct >= 0.3 && shared.outcome.reuses >= 1;
+    // Coordination "worked" if the brain was reused OR the claim gate prevented a duplicate read. With a
+    // baseline we additionally require the measured redundancy reduction to clear the bar.
+    const coordinated = shared.outcome.reuses >= 1 || shared.live.skips >= 1;
+    const pass = coordinated && (baseRed === undefined || reductionPct(baseRed, sharedRed) >= 0.3);
     console.log(pass ? "\n✅ fleet coordination met on live data" : `\n⚠️  not met this run — see ${OUT}`);
     console.log("\n" + log.summary());
     process.exitCode = pass ? 0 : 1;
