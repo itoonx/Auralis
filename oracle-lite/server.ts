@@ -203,9 +203,14 @@ const server = Bun.serve({
 
     if (url.pathname === "/health") return Response.json({ ok: true, vectors: vectorsOn, embedder });
     if (url.pathname === "/api/stats") {
-      const row = countStmt.get() as { c: number };
-      const e = edgeCountStmt.get() as { c: number };
-      const n = nodeCountStmt.get() as { c: number };
+      // Scope to a project when asked, so the dashboard cards match its project-scoped tabs. No project =
+      // global totals (kept for OracleAdapter.count() and any caller that wants the whole brain).
+      const project = url.searchParams.get("project");
+      const row = (project ? db.query("SELECT COUNT(*) AS c FROM docs WHERE project = ?").get(project) : countStmt.get()) as { c: number };
+      const e = (project ? db.query("SELECT COUNT(*) AS c FROM edges WHERE project = ?").get(project) : edgeCountStmt.get()) as { c: number };
+      const n = (project
+        ? db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges WHERE project = ? UNION SELECT obj_key FROM edges WHERE project = ?)").get(project, project)
+        : nodeCountStmt.get()) as { c: number };
       return Response.json({ count: row.c, edges: e.c, nodes: n.c, vectors: vectorsOn, embedder });
     }
 
@@ -361,6 +366,28 @@ const server = Bun.serve({
         UNION ALL SELECT obj_key AS k, object AS label FROM edges${where}
       ) GROUP BY k ORDER BY degree DESC LIMIT 40`;
       return Response.json({ entities: db.query(sql).all(...params) });
+    }
+
+    // The whole graph (bounded) for the force-directed view — the frontend derives nodes from the keys.
+    if (req.method === "GET" && url.pathname === "/api/graph/all") {
+      const project = url.searchParams.get("project");
+      const limit = Math.max(1, Math.min(2000, Number(url.searchParams.get("limit") ?? 400)));
+      let sql = "SELECT subject, predicate, object, subj_key, obj_key FROM edges";
+      const params: any[] = [];
+      if (project) { sql += " WHERE project = ?"; params.push(project); }
+      sql += " ORDER BY id LIMIT ?"; params.push(limit);
+      return Response.json({ edges: db.query(sql).all(...params) });
+    }
+
+    // The honest ADR log: decisions recorded into the brain (source auralis:decision). Superseded ones are
+    // kept and flagged (reversed, not deleted) — the values layer made visible.
+    if (req.method === "GET" && url.pathname === "/api/decisions") {
+      const project = url.searchParams.get("project");
+      let sql = "SELECT id, content, created_at AS createdAt, superseded_by AS supersededBy, superseded_reason AS supersededReason FROM docs WHERE source = 'auralis:decision'";
+      const params: any[] = [];
+      if (project) { sql += " AND project = ?"; params.push(project); }
+      sql += " ORDER BY created_at DESC LIMIT 100";
+      return Response.json({ decisions: db.query(sql).all(...params) });
     }
 
     // Bench-only, gated behind ORACLE_ALLOW_RESET (off in normal use → no-delete guarantee unchanged).
