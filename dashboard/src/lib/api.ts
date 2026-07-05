@@ -59,3 +59,63 @@ export function scorecard(events: TimelineEvent[]): Scorecard {
   const tasks = new Set(events.filter((e) => e.nodeId).map((e) => e.nodeId)).size;
   return { tasks, deduped: c("dedup"), overlaps: c("overlap"), repairs: c("repair"), notes: c("note") };
 }
+
+// ---- run history ----
+export interface RunSummary {
+  runId: string;
+  events: number;
+  tasks: number;
+  firstTs: string;
+  lastTs: string;
+  lastSeq: number;
+  deduped: number;
+  overlaps: number;
+  repairs: number;
+  notes: number;
+}
+export const getRuns = (project: string) => json<{ runs: RunSummary[] }>(`/api/runs?project=${encodeURIComponent(project)}`);
+
+// ---- timing / bottleneck ----
+export interface TimingPhase {
+  name: string;
+  n: number;
+  total: number;
+  max: number;
+  share: number;
+}
+export interface Timing {
+  wall: number;
+  spans: number;
+  phases: TimingPhase[];
+}
+export const getTiming = () => json<Timing>("/api/timing");
+
+// ---- knowledge graph ----
+export interface GraphEntity {
+  key: string;
+  label: string;
+  degree: number;
+}
+export interface GraphEdge {
+  subject: string;
+  predicate: string;
+  object: string;
+  docId?: string;
+}
+export const getGraphEntities = (project: string) =>
+  json<{ entities: GraphEntity[] }>(`/api/graph/entities?project=${encodeURIComponent(project)}`);
+export const getGraph = (entity: string, project: string) =>
+  json<{ entity: string; edges: GraphEdge[]; entities: string[] }>(
+    `/api/graph?entity=${encodeURIComponent(entity)}&project=${encodeURIComponent(project)}`,
+  );
+
+// ---- semantic search ----
+export interface SearchResult {
+  id: string;
+  content: string;
+  score?: number;
+  source?: string;
+  superseded_by?: string;
+}
+export const search = (q: string, project: string) =>
+  json<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}&project=${encodeURIComponent(project)}&limit=15`);
