@@ -100,7 +100,7 @@ export async function runFleet(
   adapter: MemoryAdapter,
   nodes: DagNode[],
   cfg: FleetCfg,
-): Promise<{ outcome: FleetOutcome; warnings: number; live: LiveStats }> {
+): Promise<{ outcome: FleetOutcome; warnings: number; live: LiveStats; runId: string }> {
   const env = new AgenticEnvironment();
   // Activity timeline: one emitter per run arm. Only when the adapter actually persists events (the shared
   // brain) — the null baseline has no recordEvent, so it emits nothing. Best-effort, never blocks the run.
