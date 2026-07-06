@@ -40,6 +40,13 @@ try { db.run("ALTER TABLE docs ADD COLUMN retrieved_count INTEGER DEFAULT 0;"); 
 // deleted); pinned = decisions/retros/human-stated — exempt from archiving, forever.
 try { db.run("ALTER TABLE docs ADD COLUMN archived INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
 try { db.run("ALTER TABLE docs ADD COLUMN pinned INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
+// Backfill for brains that predate the trust/pinned columns: the ALTER default (0.5/0) can't know the
+// source, so retros/decisions/humans in an upgraded brain would rank and archive as ordinary worker
+// findings. Recompute the priors for rows still at the default — idempotent, respects later overrides.
+db.run("UPDATE docs SET trust = 1.0,  pinned = 1 WHERE trust = 0.5 AND pinned = 0 AND source LIKE 'human%';");
+db.run("UPDATE docs SET trust = 0.85, pinned = 1 WHERE trust = 0.5 AND pinned = 0 AND source = 'auralis:retro';");
+db.run("UPDATE docs SET trust = 0.7,  pinned = 1 WHERE trust = 0.5 AND pinned = 0 AND source = 'auralis:decision';");
+db.run("UPDATE docs SET trust = 0.7 WHERE trust = 0.5 AND source = 'auralis:distilled';");
 // Graph layer: entity/relationship triplets extracted from findings (the 'buildGraph' step). Additive —
 // the brain is a graph AND a flat doc store. subj_key/obj_key are normalized so 'same key = same node'.
 db.run(`CREATE TABLE IF NOT EXISTS edges (
