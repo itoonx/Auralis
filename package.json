@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": { "auralis": "bin/auralis.mjs" },
   "scripts": {
     "test": "vitest run",
     "dev": "tsx src/run.ts",
