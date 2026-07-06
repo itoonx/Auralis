@@ -15,6 +15,7 @@ import { basename } from "node:path";
 
 const ORACLE = process.env.ORACLE_API_URL ?? "http://localhost:47778";
 const TIMEOUT = 1500; // ms — a memory write is never worth a laggy prompt
+const AUTH = process.env.ORACLE_TOKEN ? { authorization: `Bearer ${process.env.ORACLE_TOKEN}` } : {};
 
 // ---- pure ingress classifier (unit-tested) ----------------------------------------------------------
 // Decide what to do with one hook payload. Returns a list of actions; the I/O layer just executes them.
@@ -83,7 +84,7 @@ async function post(path, body) {
   try {
     await fetch(new URL(path, ORACLE), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT),
     });
@@ -96,7 +97,7 @@ async function recall(project, query) {
     u.searchParams.set("q", query.slice(0, 300));
     u.searchParams.set("project", project);
     u.searchParams.set("limit", "3");
-    const r = await fetch(u, { signal: AbortSignal.timeout(TIMEOUT) });
+    const r = await fetch(u, { headers: AUTH, signal: AbortSignal.timeout(TIMEOUT) });
     if (!r.ok) return null;
     const hits = (await r.json()).results ?? [];
     if (!hits.length) return null;

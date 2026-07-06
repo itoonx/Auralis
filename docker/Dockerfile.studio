@@ -1,0 +1,14 @@
+# studio — the dashboard's PRODUCTION build behind nginx, with /api proxied to the oracle service.
+# The dist/ is built on the HOST (`pnpm -C dashboard build`, the auralis CLI does it automatically):
+# building inside the image would mean shipping node_modules into the build for no benefit — the artifact
+# is static files either way, and host-build keeps the image a 10MB nginx.
+FROM nginx:alpine
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dashboard/dist/ /usr/share/nginx/html/
+
+EXPOSE 80
+
+# 127.0.0.1 explicitly: busybox wget resolves `localhost` to ::1 first, and nginx here listens on IPv4 only.
+HEALTHCHECK --interval=5s --timeout=3s --retries=6 --start-period=5s \
+  CMD wget -q -O /dev/null http://127.0.0.1:80/ || exit 1

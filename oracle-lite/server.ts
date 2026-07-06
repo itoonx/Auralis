@@ -257,12 +257,20 @@ function claimIn(scope: string): Map<string, string> {
   return m;
 }
 
+// Optional bearer auth (production): set ORACLE_TOKEN and every route except /health requires
+// `Authorization: Bearer <token>`. Unset = dev behaviour unchanged. Compose publishes ports on
+// 127.0.0.1 only; the token is defence for anything beyond that (tunnels, LAN).
+const TOKEN = process.env.ORACLE_TOKEN;
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
 
     if (url.pathname === "/health") return Response.json({ ok: true, vectors: vectorsOn, embedder });
+    if (TOKEN && req.headers.get("authorization") !== `Bearer ${TOKEN}`) {
+      return Response.json({ error: "unauthorized" }, { status: 401 });
+    }
     if (url.pathname === "/api/stats") {
       // Scope to a project when asked, so the dashboard cards match its project-scoped tabs. No project =
       // global totals (kept for OracleAdapter.count() and any caller that wants the whole brain).

@@ -1,0 +1,24 @@
+# oracle-lite — the brain as a daemon. Lean by design: the server needs bun:sqlite (builtin), two pure TS
+# modules, and OPTIONALLY @lancedb/lancedb (vectors; it degrades to FTS-only if missing). We install ONLY
+# lancedb — never the Agent SDK / transformers, which belong to the host-side fleet, not the brain.
+FROM oven/bun:1
+
+WORKDIR /app
+
+# A minimal, image-local package.json: one dependency. Keep the version in sync with the repo's.
+RUN echo '{"name":"oracle-lite-image","private":true,"dependencies":{"@lancedb/lancedb":"^0.31.0"}}' > package.json \
+    && bun install --production
+
+# The server + the two repo-relative imports it uses (../src/claim, ./rank).
+COPY oracle-lite/ oracle-lite/
+COPY src/claim.ts src/claim.ts
+
+# The brain lives on a bind mount (compose) so it survives rebuilds and stays greppable from the host.
+VOLUME ["/app/.auralis-out"]
+EXPOSE 47778
+
+# Healthcheck via bun itself — the base image has no curl/wget.
+HEALTHCHECK --interval=5s --timeout=3s --retries=6 --start-period=10s \
+  CMD bun -e "fetch('http://localhost:47778/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
+CMD ["bun", "run", "oracle-lite/server.ts"]

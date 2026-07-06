@@ -93,6 +93,8 @@ export class NullMemoryAdapter implements MemoryAdapter {
 }
 
 const DEFAULT_ORACLE = process.env.ORACLE_API_URL ?? "http://localhost:47778";
+// Production auth: when ORACLE_TOKEN is set (matching the sidecar's), every call carries the bearer.
+const AUTH: Record<string, string> = process.env.ORACLE_TOKEN ? { authorization: `Bearer ${process.env.ORACLE_TOKEN}` } : {};
 
 export class OracleAdapter implements MemoryAdapter {
   private readonly searchPath = process.env.ORACLE_SEARCH_PATH ?? "/api/search";
@@ -105,7 +107,7 @@ export class OracleAdapter implements MemoryAdapter {
     u.searchParams.set("mode", "hybrid");
     u.searchParams.set("limit", String(opts.limit ?? 5));
     if (opts.project) u.searchParams.set("project", opts.project);
-    const res = await log.time("oracle.search", opts.project, () => fetch(u, { signal: AbortSignal.timeout(15_000) }));
+    const res = await log.time("oracle.search", opts.project, () => fetch(u, { headers: AUTH, signal: AbortSignal.timeout(15_000) }));
     if (!res.ok) throw new Error(`oracle search ${res.status}: ${await res.text()}`);
     const body = (await res.json()) as { results?: any[] };
     return (body.results ?? []).map((r) => ({
@@ -125,7 +127,7 @@ export class OracleAdapter implements MemoryAdapter {
     const res = await log.time("oracle.learn", opts.project, () =>
       fetch(new URL(this.learnPath, this.baseUrl), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...AUTH },
         body: JSON.stringify({ pattern, concepts: opts.concepts, project: opts.project, source: opts.source ?? "auralis", tier: opts.tier, pinned: opts.pinned }),
         signal: AbortSignal.timeout(30_000),
       }),
@@ -138,7 +140,7 @@ export class OracleAdapter implements MemoryAdapter {
   async supersede(oldId: string, newId: string, reason?: string): Promise<void> {
     const res = await fetch(new URL("/api/supersede", this.baseUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify({ oldId, newId, reason }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -148,7 +150,7 @@ export class OracleAdapter implements MemoryAdapter {
   async relate(docId: string, project: string, triplets: Triplet[]): Promise<void> {
     const res = await fetch(new URL("/api/relate", this.baseUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify({ docId, project, triplets }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -159,7 +161,7 @@ export class OracleAdapter implements MemoryAdapter {
     const u = new URL("/api/graph", this.baseUrl);
     u.searchParams.set("entity", entity);
     if (project) u.searchParams.set("project", project);
-    const res = await fetch(u, { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(u, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`oracle graph ${res.status}`);
     const body = (await res.json()) as { edges?: any[]; entities?: string[] };
     return {
@@ -169,7 +171,7 @@ export class OracleAdapter implements MemoryAdapter {
   }
 
   async count(): Promise<number> {
-    const res = await fetch(new URL("/api/stats", this.baseUrl), { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(new URL("/api/stats", this.baseUrl), { headers: AUTH, signal: AbortSignal.timeout(5_000) });
     if (!res.ok) throw new Error(`oracle stats ${res.status}`);
     const body = (await res.json()) as { count?: number };
     return Number(body.count ?? 0);
@@ -180,7 +182,7 @@ export class OracleAdapter implements MemoryAdapter {
     if (opts.tier) u.searchParams.set("tier", opts.tier);
     if (opts.project) u.searchParams.set("project", opts.project);
     u.searchParams.set("max", String(opts.max ?? 200));
-    const res = await fetch(u, { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(u, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`oracle docs ${res.status}`);
     const body = (await res.json()) as { docs?: any[] };
     return (body.docs ?? []).map((d) => ({ id: String(d.id), content: String(d.content), tier: d.tier }));
@@ -188,7 +190,7 @@ export class OracleAdapter implements MemoryAdapter {
 
   // Bench-only: clear the brain between trials (requires the server to run with ORACLE_ALLOW_RESET).
   async reset(): Promise<void> {
-    const res = await fetch(new URL("/api/reset", this.baseUrl), { method: "POST", signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(new URL("/api/reset", this.baseUrl), { method: "POST", headers: AUTH, signal: AbortSignal.timeout(5_000) });
     if (!res.ok) throw new Error(`oracle reset ${res.status} (is ORACLE_ALLOW_RESET set on the sidecar?)`);
   }
 
@@ -197,7 +199,7 @@ export class OracleAdapter implements MemoryAdapter {
     const res = await log.time("oracle.claim", scope, () =>
       fetch(new URL("/api/claim", this.baseUrl), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...AUTH },
         body: JSON.stringify({ scope, target, by }),
         signal: AbortSignal.timeout(5_000),
       }),
@@ -209,7 +211,7 @@ export class OracleAdapter implements MemoryAdapter {
   async claimReset(scope: string): Promise<void> {
     const res = await fetch(new URL("/api/claim/reset", this.baseUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify({ scope }),
       signal: AbortSignal.timeout(5_000),
     });
@@ -220,7 +222,7 @@ export class OracleAdapter implements MemoryAdapter {
   async cite(id: string): Promise<void> {
     const res = await fetch(new URL("/api/cite", this.baseUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify({ id }),
       signal: AbortSignal.timeout(5_000),
     });
@@ -232,7 +234,7 @@ export class OracleAdapter implements MemoryAdapter {
   async recordEvent(e: TimelineEvent): Promise<void> {
     const res = await fetch(new URL("/api/event", this.baseUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...AUTH },
       body: JSON.stringify({ runId: e.runId, project: e.project, kind: e.kind, actor: e.actor, human: e.human, nodeId: e.nodeId, parentNode: e.parentNode, refs: e.refs }),
       signal: AbortSignal.timeout(5_000),
     });
@@ -244,7 +246,7 @@ export class OracleAdapter implements MemoryAdapter {
     if (opts.run) u.searchParams.set("run", opts.run);
     if (opts.project) u.searchParams.set("project", opts.project);
     if (opts.limit) u.searchParams.set("limit", String(opts.limit));
-    const res = await fetch(u, { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(u, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`oracle timeline ${res.status}`);
     const body = (await res.json()) as { events?: TimelineEvent[] };
     return body.events ?? [];
