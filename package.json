@@ -18,6 +18,7 @@
     "help": "tsx src/help.ts",
     "analyze": "tsx src/run-analyze.ts",
     "bench-graph": "tsx src/run-bench-graph.ts",
+    "bench-rank": "tsx src/run-bench-rank.ts",
     "build-graph": "tsx src/run-build-graph.ts",
     "timeline": "tsx src/run-timeline.ts",
     "accept": "tsx src/accept.ts",

@@ -36,13 +36,17 @@ export interface BoostInputs {
   superseded: boolean;
 }
 
-// final = RRF × (1 + 0.2·recency + 0.1·usage + 0.2·trust) × (superseded ? 0.3 : 1)
-// Bounded: the multiplier is at most 1.5× — a stale, unused, untrusted doc still surfaces if it is
-// the best match. Recency half-life 14 days (raw findings churn fast in an active repo).
+// final = RRF × (1 + 0.2·recency + 0.1·usage + 0.05·trust) × (superseded ? 0.3 : 1)
+// Weights are ordered by how much each may safely move a result: supersede (×0.3) is decisive — a wrong/
+// stale answer must sink; citation (0.1) and recency (0.2) are real earned signals; trust is only a
+// TIEBREAKER (0.05). The ranking bench (src/run-bench-rank.ts) proved trust at 0.2 could override a genuine
+// relevance win (its guardrail query) — RRF is rank-only, so it can't tell a near-tie from a real gap, and a
+// strong trust multiplier flips both. So trust nudges exact ties toward the more-credible source and no more;
+// its real teeth are in FORGETTING (strength()), not search order. Max multiplier ×1.35 — relevance dominates.
 export function boost(base: number, b: BoostInputs): number {
   const recency = Math.pow(2, -Math.max(0, b.daysSinceAccess) / 14);
   const usage = b.maxUsed > 0 ? Math.log(1 + Math.max(0, b.timesUsed)) / Math.log(1 + b.maxUsed) : 0;
-  return base * (1 + 0.2 * recency + 0.1 * usage + 0.2 * b.trust) * (b.superseded ? 0.3 : 1);
+  return base * (1 + 0.2 * recency + 0.1 * usage + 0.05 * b.trust) * (b.superseded ? 0.3 : 1);
 }
 
 export function daysBetween(fromIso: string | null | undefined, now: number): number {

@@ -110,8 +110,17 @@ sweepArchive();
 const sweepTimer = setInterval(sweepArchive, 24 * 3600 * 1000);
 if (typeof sweepTimer.unref === "function") sweepTimer.unref();
 
+// Stopwords: high-frequency words carry no topic. Without dropping them, a query like "how does auth work"
+// matches every doc containing "the/is/how" and the ranker orders noise — the ranking bench surfaced exactly
+// this (boosts amplified off-topic docs that only shared "the"/"is"). Standard IR practice; helps real recall too.
+const STOPWORDS = new Set(
+  ("a an and are as at be been being but by can could did do does doing for from had has have how in into is it its of on or " +
+   "that the their this to was were what when where which who why will with would you your").split(" "),
+);
 function sanitize(q: string): string {
-  const toks = (q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter((t) => t.length > 1);
+  const raw = (q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter((t) => t.length > 1);
+  const kept = raw.filter((t) => !STOPWORDS.has(t));
+  const toks = kept.length ? kept : raw; // an all-stopword query keeps them rather than matching nothing
   const uniq = [...new Set(toks)].slice(0, 8);
   return uniq.length ? uniq.map((t) => `"${t}"`).join(" OR ") : '"_"';
 }
@@ -501,6 +510,9 @@ const server = Bun.serve({
       const mode = url.searchParams.get("mode") ?? "hybrid";
       const project = url.searchParams.get("project"); // recall must not leak across projects
       const deep = url.searchParams.get("include_archived") === "1"; // deep search reaches archived docs
+      // rank=plain returns pure relevance order (RRF only, no trust/recency/usage/supersede boosts) — the
+      // A/B baseline the ranking bench compares against, so we can MEASURE whether the boosts earn their place.
+      const plain = url.searchParams.get("rank") === "plain";
 
       const ftsRows =
         mode === "vector"
@@ -535,13 +547,15 @@ const server = Bun.serve({
       const maxUsed = Math.max(0, ...cands.map((c) => Number(c.doc.times_used ?? 0)));
       const scored = cands.map((c) => ({
         ...c,
-        score: boost(c.base, {
-          trust: Number(c.doc.trust ?? 0.5),
-          timesUsed: Number(c.doc.times_used ?? 0),
-          maxUsed,
-          daysSinceAccess: daysBetween(c.doc.last_accessed_at ?? c.doc.created_at, now),
-          superseded: !!c.doc.superseded_by,
-        }),
+        score: plain
+          ? c.base // baseline: pure RRF relevance, no boosts (the ranking bench's A/B control)
+          : boost(c.base, {
+              trust: Number(c.doc.trust ?? 0.5),
+              timesUsed: Number(c.doc.times_used ?? 0),
+              maxUsed,
+              daysSinceAccess: daysBetween(c.doc.last_accessed_at ?? c.doc.created_at, now),
+              superseded: !!c.doc.superseded_by,
+            }),
       }));
 
       const top = scored.sort((a, b) => b.score - a.score).slice(0, limit);
