@@ -29,6 +29,8 @@ the same brain serves Claude today and any other model or agent runtime tomorrow
 - [Proven on live runs](#proven-on-live-runs)
 - [Architecture](#architecture)
 - [Getting started](#getting-started)
+- [Use it from Claude Code (MCP)](#use-it-from-claude-code-mcp)
+- [Production — run it as a daemon](#production--run-it-as-a-daemon-docker-compose--auralis-cli)
 - [Command reference](#command-reference)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
@@ -261,30 +263,64 @@ Two arrows into oracle-lite, on purpose: the left is **memory** (what agents kno
 
 ## Getting started
 
-You'll need **Node 20+**, **pnpm**, **Bun ≥ 1.2**, and **Claude Code** logged in (no API key required).
+**Prerequisites:** Node 20+ · pnpm · Bun ≥ 1.2 · Docker (only for the daemon stack) · **Claude Code logged
+in** — workers reuse your login. ⚠️ If `ANTHROPIC_API_KEY` is set in your shell, workers bill *that key*
+(pay-as-you-go) instead of your subscription; `unset ANTHROPIC_API_KEY` to use the login.
 
 ```bash
+git clone <this repo> && cd auralis
 pnpm install
 pnpm test        # fast offline proofs of the mechanics + a live memory check
 ```
 
-Then point it at any repo. The short path is one command:
+### 1 · Start the platform (runs as a daemon)
 
 ```bash
-# run the society once, build the graph, answer from graph-aware recall (quality on by default)
+node bin/auralis.mjs start
+```
+
+That's the whole setup. You now have — surviving terminal close, restarting with Docker:
+
+- **studio** (dashboard): <http://localhost:47780> — activity timeline, runs, graph, decisions, search
+- **brain API**: `http://localhost:47778`
+
+`node bin/auralis.mjs status | stop | logs | doctor` manage it. *(No Docker? Skip this step — every command
+below boots a temporary brain by itself.)*
+
+### 2 · Analyse any repo
+
+```bash
 AURALIS_PROJECT=myrepo AURALIS_PROJECT_DIR=/path/to/repo pnpm analyze "how does auth work?"
 ```
 
-Or step through the pieces:
+A society of agents reads the repo, coordinates through the brain (no duplicated work), answers with a
+"why" trail — and everything it learned is remembered under `myrepo` for every future run.
+
+### 3 · Build a small program
 
 ```bash
-AURALIS_PROJECT_DIR=/path/to/repo pnpm dev        # watch a team analyse a repo, with a "why" trail
-AURALIS_PROJECT_DIR=/path/to/repo pnpm persist    # prove memory survives across separate processes
-pnpm values                                        # see the append-only / supersession guarantees
+AURALIS_MODE=build AURALIS_PROJECT_DIR=./my-app \
+AURALIS_GOAL="a todo REST API over Node's http in three files: store.js, router.js, server.js" pnpm dev
 ```
 
-Everything project-specific — the target repo, the goal, the tasks — comes from environment variables, so
-auralis isn't tied to any one project. See [Configuration](#configuration) and `.env.example`.
+Workers each own a file, agree on interfaces through the brain, and auralis verifies the result
+(add `AURALIS_ACCEPT=restapi` to run the objective acceptance harness; on FAIL it reworks automatically).
+
+### 4 · Or drive it from Claude Code
+
+Add the MCP server to your `.mcp.json` and your normal `claude` session gets `analyze` and `build` tools —
+see [Use it from Claude Code](#use-it-from-claude-code-mcp). Working *inside this repo*, your session is
+also captured into the same brain and relevant memories are injected back into every prompt
+([session capture](#session-capture--your-claude-code-session-feeds-the-same-brain)).
+
+### 5 · Watch it work
+
+Open the studio while a run is going: the Activity tab streams the narrated timeline (▸ intents,
+✓ findings, ⇄ prevented duplicates, ↻ repairs), Runs compares scorecards, Graph shows what connects.
+
+Everything project-specific comes from env vars — auralis isn't tied to any one repo. Deeper pieces:
+`pnpm persist` (memory across processes), `pnpm values` (append-only guarantees), `pnpm run help` (all
+commands). See [Configuration](#configuration) and `.env.example`.
 
 ## Use it from Claude Code (MCP)
 
