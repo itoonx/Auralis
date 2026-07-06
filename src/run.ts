@@ -21,7 +21,10 @@ const PLAN_TURNS = Number(process.env.AURALIS_PLAN_TURNS ?? 6);
 const CONCURRENCY = Number(process.env.AURALIS_PARALLEL ?? 1);
 const RETRIES = Number(process.env.AURALIS_RETRIES ?? 1); // self-repair retries per task
 const WORKER_PULL = process.env.AURALIS_WORKER_PULL !== "0"; // workers read/write the brain live, mid-task (real-time sharing); =0 to opt out
-const RUN_BASELINE = process.env.AURALIS_BASELINE !== "0"; // prod mode (=0): skip the baseline A/B arm — run only the shared brain
+// Baseline A/B arm is now OPT-IN (=1): it exists to MEASURE the brain's value and that measurement is done
+// (M-series). Every real run this project makes set =0 by hand — a default nobody uses that doubles wall
+// time is the wrong default. Set AURALIS_BASELINE=1 when re-measuring.
+const RUN_BASELINE = process.env.AURALIS_BASELINE === "1";
 const BUILD = (process.env.AURALIS_MODE ?? "analyze") === "build"; // build: workers WRITE files (claim guards writes); else read-only analyse
 const ACCEPT = process.env.AURALIS_ACCEPT; // build: close the loop — validate against this spec (rps|todo)
 const REWORK = Number(process.env.AURALIS_BUILD_RETRIES ?? 1); // extra fleet reworks when acceptance FAILS

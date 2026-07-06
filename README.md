@@ -342,7 +342,7 @@ Full list + defaults in `.env.example`. The ones that matter most:
 |---|---|
 | `AURALIS_WORKER_PULL` | workers read/write the brain live, mid-task (real-time sharing + claim dedup) — **on by default**; `=0` to opt out |
 | `AURALIS_PARALLEL=3` | run each DAG level concurrently — faster, but same-level tasks can't reuse each other |
-| `AURALIS_BASELINE=0` | **prod mode** — skip the A/B baseline arm, run only the shared brain (~2× faster) |
+| `AURALIS_BASELINE=1` | **re-measure mode** — also run the no-brain A/B baseline arm (~2× slower; **off by default** — the brain's value is already measured) |
 
 **Build mode**
 | Variable | Effect |

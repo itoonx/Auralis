@@ -51,10 +51,15 @@ export function buildRetroText(s: RunSignals): string {
 }
 
 // Persist the retro to the shared brain (append-only, searchable). Best-effort — never breaks a run.
+// Only retros with a HARD lesson (a measured failure that got fixed, or self-repairs) are pinned forever;
+// "passed first try — repeat structure" retros carry near-zero information, so they stay unpinned and fade
+// via the U4 forgetting sweep instead of accumulating as permanent noise. (Utility audit, 2026-07-07: 3 of
+// the first 5 retros in the live brain were no-lesson pins.)
 export async function writeRetro(adapter: MemoryAdapter, project: string, s: RunSignals): Promise<string> {
   const text = buildRetroText(s);
+  const hardLesson = (s.mode === "build" && (s.pass === false || (s.reworks ?? 0) > 0)) || s.repairs > 0;
   try {
-    await adapter.learn(text, { project, source: "auralis:retro", concepts: ["retrospective", s.mode] });
+    await adapter.learn(text, { project, source: "auralis:retro", concepts: ["retrospective", s.mode], pinned: hardLesson });
   } catch {
     /* retro is best-effort observability, not a dependency of the work */
   }

@@ -282,7 +282,9 @@ const server = Bun.serve({
       const id = idFrom(pattern);
       const concepts = Array.isArray(body?.concepts) ? body.concepts.join(" ") : "";
       const source = String(body?.source ?? "auralis");
-      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinnedOf(source) ? 1 : 0);
+      // pinned: explicit body flag wins (e.g. a retro with a real lesson); else derived from the source.
+      const pinned = typeof body?.pinned === "boolean" ? body.pinned : pinnedOf(source);
+      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinned ? 1 : 0);
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
       return Response.json({ success: true, id, embedding: vectorsOn ? embedder : "fts-only" });

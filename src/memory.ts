@@ -40,7 +40,7 @@ export interface TimelineEvent {
 
 export interface MemoryAdapter {
   search(query: string, opts?: { limit?: number; project?: string }): Promise<SearchHit[]>;
-  learn(pattern: string, opts?: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled" }): Promise<{ id: string }>;
+  learn(pattern: string, opts?: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled"; pinned?: boolean }): Promise<{ id: string }>;
   listDocs?(opts?: { tier?: string; project?: string; max?: number }): Promise<{ id: string; content: string; tier?: string }[]>;
   supersede?(oldId: string, newId: string, reason?: string): Promise<void>;
   relate?(docId: string, project: string, triplets: Triplet[]): Promise<void>; // store graph edges for a finding
@@ -120,13 +120,13 @@ export class OracleAdapter implements MemoryAdapter {
 
   async learn(
     pattern: string,
-    opts: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled" } = {},
+    opts: { concepts?: string[]; project?: string; source?: string; tier?: "raw" | "distilled"; pinned?: boolean } = {},
   ): Promise<{ id: string }> {
     const res = await log.time("oracle.learn", opts.project, () =>
       fetch(new URL(this.learnPath, this.baseUrl), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pattern, concepts: opts.concepts, project: opts.project, source: opts.source ?? "auralis", tier: opts.tier }),
+        body: JSON.stringify({ pattern, concepts: opts.concepts, project: opts.project, source: opts.source ?? "auralis", tier: opts.tier, pinned: opts.pinned }),
         signal: AbortSignal.timeout(30_000),
       }),
     );
