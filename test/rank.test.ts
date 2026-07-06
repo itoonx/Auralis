@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rrf, trustOf, boost, daysBetween, RRF_K } from "../oracle-lite/rank";
+import { rrf, trustOf, boost, daysBetween, strength, pinnedOf, ARCHIVE_FLOOR, RRF_K } from "../oracle-lite/rank";
 
 describe("rrf", () => {
   it("a doc in BOTH lists outranks a doc that tops one list", () => {
@@ -66,6 +66,34 @@ describe("boost", () => {
     const used = boost(1, { trust: 0.5, timesUsed: 5, maxUsed: 5, daysSinceAccess: 0, superseded: false });
     const unused = boost(1, { trust: 0.5, timesUsed: 0, maxUsed: 5, daysSinceAccess: 0, superseded: false });
     expect(used).toBeGreaterThan(unused);
+  });
+});
+
+describe("strength / forgetting (U4)", () => {
+  it("an untouched raw worker finding crosses the archive floor after ~47 days", () => {
+    expect(strength(0.5, 0, 40, "raw")).toBeGreaterThan(ARCHIVE_FLOOR);
+    expect(strength(0.5, 0, 50, "raw")).toBeLessThan(ARCHIVE_FLOOR);
+  });
+
+  it("distilled knowledge fades far slower (90d half-life)", () => {
+    expect(strength(0.7, 0, 50, "distilled")).toBeGreaterThan(ARCHIVE_FLOOR);
+    expect(strength(0.7, 0, 300, "distilled")).toBeGreaterThan(ARCHIVE_FLOOR);
+    expect(strength(0.7, 0, 400, "distilled")).toBeLessThan(ARCHIVE_FLOOR);
+  });
+
+  it("use reinforces: a cited finding outlives an identical uncited one", () => {
+    const cited = strength(0.5, 3, 50, "raw");
+    const uncited = strength(0.5, 0, 50, "raw");
+    expect(cited).toBeGreaterThan(uncited);
+    expect(cited).toBeGreaterThan(ARCHIVE_FLOOR); // 3 cites keep it alive past day 50
+  });
+
+  it("pinned sources are decisions, retros, and humans — never workers", () => {
+    expect(pinnedOf("human")).toBe(true);
+    expect(pinnedOf("auralis:retro")).toBe(true);
+    expect(pinnedOf("auralis:decision")).toBe(true);
+    expect(pinnedOf("auralis:distilled")).toBe(false);
+    expect(pinnedOf("auralis:worker:w1")).toBe(false);
   });
 });
 

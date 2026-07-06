@@ -7,7 +7,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { resolveClaim } from "../src/claim";
-import { rrf, trustOf, boost, daysBetween } from "./rank";
+import { rrf, trustOf, boost, daysBetween, strength, pinnedOf, ARCHIVE_FLOOR } from "./rank";
 
 const PORT = Number(process.env.ORACLE_PORT ?? 47778);
 const DB_PATH = process.env.ORACLE_DB ?? ".auralis-out/brain.sqlite";
@@ -36,6 +36,10 @@ try { db.run("ALTER TABLE docs ADD COLUMN trust REAL DEFAULT 0.5;"); } catch { /
 try { db.run("ALTER TABLE docs ADD COLUMN last_accessed_at TEXT;"); } catch { /* column already exists */ }
 try { db.run("ALTER TABLE docs ADD COLUMN times_used INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
 try { db.run("ALTER TABLE docs ADD COLUMN retrieved_count INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
+// U4 forgetting-as-ranking: archived = strength fell below the floor (hidden from default search, never
+// deleted); pinned = decisions/retros/human-stated — exempt from archiving, forever.
+try { db.run("ALTER TABLE docs ADD COLUMN archived INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN pinned INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
 // Graph layer: entity/relationship triplets extracted from findings (the 'buildGraph' step). Additive —
 // the brain is a graph AND a flat doc store. subj_key/obj_key are normalized so 'same key = same node'.
 db.run(`CREATE TABLE IF NOT EXISTS edges (
@@ -50,11 +54,11 @@ db.run(`CREATE TABLE IF NOT EXISTS events (
   human TEXT, node_id TEXT, parent_node TEXT, refs TEXT, ts TEXT
 );`);
 
-const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier, trust) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier, trust, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
 const supersedeStmt = db.query("UPDATE docs SET superseded_by = ?, superseded_at = ?, superseded_reason = ? WHERE id = ?");
 const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
-const getDocStmt = db.query("SELECT id, content, source, superseded_by, project, trust, times_used, last_accessed_at, created_at FROM docs WHERE id = ?");
+const getDocStmt = db.query("SELECT id, content, source, superseded_by, project, trust, times_used, last_accessed_at, created_at, archived FROM docs WHERE id = ?");
 // Serving a doc touches its access columns: retrieved_count is observability; last_accessed_at feeds the
 // recency boost (MemoryBank-style reinforcement). times_used is NOT bumped here — usage counts citations
 // only (U3), never retrievals, or ranking self-reinforces its own winners (Memoria's documented mistake).
@@ -68,8 +72,36 @@ const searchStmt = db.query(
           d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
           bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
+   WHERE docs_fts MATCH ? AND d.archived = 0 ORDER BY rank LIMIT ?`,
+);
+const searchDeepStmt = db.query(
+  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
+          d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
+          bm25(docs_fts) AS rank
+   FROM docs_fts JOIN docs d ON d.id = docs_fts.id
    WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?`,
 );
+
+// U4 sweep: archive (never delete) docs whose strength fell below the floor. Strength is computed in JS
+// from the same formula ranking uses — one source of truth in rank.ts. Runs at boot and every 24h.
+function sweepArchive(): number {
+  const rows = db.query("SELECT id, source, trust, times_used, last_accessed_at, created_at, tier FROM docs WHERE archived = 0 AND pinned = 0").all() as any[];
+  const now = Date.now();
+  const mark = db.query("UPDATE docs SET archived = 1 WHERE id = ?");
+  let archived = 0;
+  for (const r of rows) {
+    const days = daysBetween(r.last_accessed_at ?? r.created_at, now);
+    if (strength(Number(r.trust ?? 0.5), Number(r.times_used ?? 0), days, String(r.tier ?? "raw")) < ARCHIVE_FLOOR) {
+      mark.run(r.id);
+      archived++;
+    }
+  }
+  if (archived) console.log(`· sweep: archived ${archived} faded doc(s) — deep search (include_archived=1) still reaches them`);
+  return archived;
+}
+sweepArchive();
+const sweepTimer = setInterval(sweepArchive, 24 * 3600 * 1000);
+if (typeof sweepTimer.unref === "function") sweepTimer.unref();
 
 function sanitize(q: string): string {
   const toks = (q.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter((t) => t.length > 1);
@@ -234,7 +266,7 @@ const server = Bun.serve({
       const id = idFrom(pattern);
       const concepts = Array.isArray(body?.concepts) ? body.concepts.join(" ") : "";
       const source = String(body?.source ?? "auralis");
-      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source));
+      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinnedOf(source) ? 1 : 0);
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
       return Response.json({ success: true, id, embedding: vectorsOn ? embedder : "fts-only" });
@@ -271,6 +303,11 @@ const server = Bun.serve({
 
     // Concurrent-dedup claim: first worker to claim a (scope,target) owns it; a later, different worker is
     // told to skip. This is the shared enforcement point for ANY agent runtime, not just the Claude hook.
+    // U4: trigger the archive sweep on demand (ops/testing; boot + 24h interval run it automatically).
+    if (req.method === "POST" && url.pathname === "/api/sweep") {
+      return Response.json({ success: true, archived: sweepArchive() });
+    }
+
     // U3 usage feedback: a worker cited this finding as having materially helped. Citation (not retrieval)
     // feeds the usage boost — see the touchStmt comment for why. Idempotent-ish, append-only in spirit.
     if (req.method === "POST" && url.pathname === "/api/cite") {
@@ -456,6 +493,7 @@ const server = Bun.serve({
       const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") ?? 5)));
       const mode = url.searchParams.get("mode") ?? "hybrid";
       const project = url.searchParams.get("project"); // recall must not leak across projects
+      const deep = url.searchParams.get("include_archived") === "1"; // deep search reaches archived docs
 
       const ftsRows =
         mode === "vector"
@@ -467,10 +505,10 @@ const server = Bun.serve({
                             d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
                             bm25(docs_fts) AS rank
                      FROM docs_fts JOIN docs d ON d.id = docs_fts.id
-                     WHERE docs_fts MATCH ? AND d.project = ? ORDER BY rank LIMIT ?`,
+                     WHERE docs_fts MATCH ? AND d.project = ? ${deep ? "" : "AND d.archived = 0"} ORDER BY rank LIMIT ?`,
                   )
                   .all(sanitize(q), project, limit * 3)
-              : searchStmt.all(sanitize(q), limit * 3)) as any[]);
+              : (deep ? searchDeepStmt : searchStmt).all(sanitize(q), limit * 3)) as any[]);
       const vScores = mode === "fts" ? new Map<string, number>() : await vectorQuery(q, limit * 3);
 
       // Ranking v2 (U1+U2): rank-only RRF over the two lists (bm25 and cosine scales never mix), then
@@ -481,7 +519,7 @@ const server = Bun.serve({
       for (const id of vRanked) {
         if (byId.has(id)) continue;
         const d = getDocStmt.get(id) as any;
-        if (!d || (project && d.project !== project)) { byId.set(id, null); continue; } // out of project — keep rank slot, drop doc
+        if (!d || (project && d.project !== project) || (!deep && d.archived)) { byId.set(id, null); continue; } // out of project / faded — keep rank slot, drop doc
         byId.set(id, d);
       }
       const fused = rrf([ftsRows.map((r) => String(r.id)), vRanked]);

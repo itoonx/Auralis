@@ -50,3 +50,21 @@ export function daysBetween(fromIso: string | null | undefined, now: number): nu
   const t = Date.parse(fromIso);
   return Number.isFinite(t) ? (now - t) / 86_400_000 : 0;
 }
+
+// U4 forgetting-as-ranking: memory strength decays unless reinforced by use. Retrieval touches
+// last_accessed_at, so anything the fleet keeps recalling stays strong (MemoryBank); junk fades.
+// Below ARCHIVE_FLOOR the sweep marks it archived=1 — hidden from default search, never deleted
+// (deep search still reaches it). Pinned docs (decisions, retros, human) are exempt: never archived.
+// Half-lives: raw findings churn fast (14d); distilled knowledge is consolidated — slow (90d).
+// An untouched raw worker finding (trust 0.5) crosses the floor after ~47 days.
+export const ARCHIVE_FLOOR = 0.05;
+
+export function strength(trust: number, timesUsed: number, daysSinceAccess: number, tier: string): number {
+  const halfLife = tier === "distilled" ? 90 : 14;
+  return trust * (1 + Math.log(1 + Math.max(0, timesUsed))) * Math.pow(2, -Math.max(0, daysSinceAccess) / halfLife);
+}
+
+// Pinned = never forgotten: human-stated, measured retros, and explicit decisions.
+export function pinnedOf(source: string): boolean {
+  return source.startsWith("human") || source === "auralis:retro" || source === "auralis:decision";
+}
