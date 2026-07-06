@@ -15,11 +15,16 @@ const short = (s: string, n = 22) => (s.length > n ? s.slice(0, n - 1) + "…" :
 const clampK = (k: number) => Math.min(5, Math.max(0.25, k))
 
 export function ForceGraph({ edges, onSelect }: { edges: GraphAllEdge[]; onSelect?: (key: string) => void }) {
+  // When edges change mid-run (a new finding landed), rebuild the node list but seed each surviving node
+  // from its previous position — incl. fx/fy, so pins survive — and only genuinely new nodes swing into
+  // place. Without this every refresh re-randomized the whole layout. Idempotent, so StrictMode's
+  // double-invoke is harmless.
+  const prev = useRef<Map<string, N>>(new Map())
   const { nodes, links } = useMemo(() => {
     const map = new Map<string, N>()
     const deg = new Map<string, number>()
     const bump = (key: string, label: string) => {
-      if (!map.has(key)) map.set(key, { id: key, label, deg: 0 })
+      if (!map.has(key)) map.set(key, { ...prev.current.get(key), id: key, label, deg: 0 })
       deg.set(key, (deg.get(key) ?? 0) + 1)
     }
     const ls: L[] = []
@@ -29,6 +34,7 @@ export function ForceGraph({ edges, onSelect }: { edges: GraphAllEdge[]; onSelec
       ls.push({ source: e.subj_key, target: e.obj_key, predicate: e.predicate })
     }
     for (const [k, d] of deg) map.get(k)!.deg = d
+    prev.current = map
     return { nodes: [...map.values()], links: ls }
   }, [edges])
 

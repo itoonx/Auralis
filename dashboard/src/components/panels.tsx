@@ -1,13 +1,13 @@
 // The analytical panels behind the dashboard tabs. Each fetches its own slice of the brain via usePoll
 // (stale-guarded) and refetches on the shared `tick` the parent bumps while live. Kept in one file —
 // they're small and always shipped together.
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { getDecisions, getGraphAll, getRuns, getTiming, search, type SearchResult } from "@/lib/api"
+import { getDecisions, getGraphAll, getRuns, getTiming, search, type GraphAllEdge, type SearchResult } from "@/lib/api"
 import { usePoll } from "@/lib/use-poll"
 import { ForceGraph } from "@/components/force-graph"
 
@@ -92,7 +92,10 @@ export function RunsPanel({ project, tick, selected, onSelect }: { project: stri
 // neighborhood, click a node to list its edges below.
 export function GraphPanel({ project, tick }: { project: string; tick: number }) {
   const { data } = usePoll(() => getGraphAll(project), [project, tick])
-  const edges = data?.edges ?? []
+  // Every poll returns a fresh array; keying the memo on content keeps the reference stable when the
+  // graph hasn't actually changed, so ForceGraph doesn't rebuild (and restart its simulation) each tick.
+  const edgesKey = JSON.stringify(data?.edges ?? [])
+  const edges = useMemo(() => JSON.parse(edgesKey) as GraphAllEdge[], [edgesKey])
   const [sel, setSel] = useState("")
   const nodeCount = new Set(edges.flatMap((e) => [e.subj_key, e.obj_key])).size
   const nbr = sel ? edges.filter((e) => e.subj_key === sel || e.obj_key === sel) : []
