@@ -7,6 +7,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { resolveClaim } from "../src/claim";
+import { rrf, trustOf, boost, daysBetween } from "./rank";
 
 const PORT = Number(process.env.ORACLE_PORT ?? 47778);
 const DB_PATH = process.env.ORACLE_DB ?? ".auralis-out/brain.sqlite";
@@ -29,6 +30,12 @@ db.run(`CREATE TABLE IF NOT EXISTS docs (
 );`);
 db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, content, concepts);`);
 try { db.run("ALTER TABLE docs ADD COLUMN tier TEXT DEFAULT 'raw';"); } catch { /* column already exists */ }
+// Ranking v2 columns (U1+U2, docs/research-memory-os.md): trust prior set at learn from the source;
+// access/usage counters power the recency+usage boosts. Additive — an existing brain upgrades in place.
+try { db.run("ALTER TABLE docs ADD COLUMN trust REAL DEFAULT 0.5;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN last_accessed_at TEXT;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN times_used INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN retrieved_count INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
 // Graph layer: entity/relationship triplets extracted from findings (the 'buildGraph' step). Additive —
 // the brain is a graph AND a flat doc store. subj_key/obj_key are normalized so 'same key = same node'.
 db.run(`CREATE TABLE IF NOT EXISTS edges (
@@ -43,17 +50,23 @@ db.run(`CREATE TABLE IF NOT EXISTS events (
   human TEXT, node_id TEXT, parent_node TEXT, refs TEXT, ts TEXT
 );`);
 
-const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier) VALUES (?, ?, ?, ?, ?, ?, ?)");
+const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier, trust) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
 const supersedeStmt = db.query("UPDATE docs SET superseded_by = ?, superseded_at = ?, superseded_reason = ? WHERE id = ?");
 const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
-const getDocStmt = db.query("SELECT id, content, source, superseded_by, project FROM docs WHERE id = ?");
+const getDocStmt = db.query("SELECT id, content, source, superseded_by, project, trust, times_used, last_accessed_at, created_at FROM docs WHERE id = ?");
+// Serving a doc touches its access columns: retrieved_count is observability; last_accessed_at feeds the
+// recency boost (MemoryBank-style reinforcement). times_used is NOT bumped here — usage counts citations
+// only (U3), never retrievals, or ranking self-reinforces its own winners (Memoria's documented mistake).
+const touchStmt = db.query("UPDATE docs SET retrieved_count = retrieved_count + 1, last_accessed_at = ? WHERE id = ?");
 const insEdge = db.query("INSERT INTO edges (subject, predicate, object, subj_key, obj_key, doc_id, project, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 const insEvent = db.query("INSERT INTO events (run_id, project, kind, actor, human, node_id, parent_node, refs, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq");
 const edgeCountStmt = db.query("SELECT COUNT(*) AS c FROM edges");
 const nodeCountStmt = db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges UNION SELECT obj_key FROM edges)");
 const searchStmt = db.query(
-  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by, bm25(docs_fts) AS rank
+  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
+          d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
+          bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
    WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?`,
 );
@@ -220,7 +233,8 @@ const server = Bun.serve({
       if (!pattern) return Response.json({ error: "pattern is required" }, { status: 400 });
       const id = idFrom(pattern);
       const concepts = Array.isArray(body?.concepts) ? body.concepts.join(" ") : "";
-      insDoc.run(id, pattern, concepts, body?.project ?? null, body?.source ?? "auralis", new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw");
+      const source = String(body?.source ?? "auralis");
+      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source));
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
       return Response.json({ success: true, id, embedding: vectorsOn ? embedder : "fts-only" });
@@ -439,7 +453,9 @@ const server = Bun.serve({
           : ((project
               ? db
                   .query(
-                    `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by, bm25(docs_fts) AS rank
+                    `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
+                            d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
+                            bm25(docs_fts) AS rank
                      FROM docs_fts JOIN docs d ON d.id = docs_fts.id
                      WHERE docs_fts MATCH ? AND d.project = ? ORDER BY rank LIMIT ?`,
                   )
@@ -447,31 +463,44 @@ const server = Bun.serve({
               : searchStmt.all(sanitize(q), limit * 3)) as any[]);
       const vScores = mode === "fts" ? new Map<string, number>() : await vectorQuery(q, limit * 3);
 
-      const merged = new Map<string, { id: string; content: string; source: string; superseded_by: any; score: number }>();
-      for (const r of ftsRows) {
-        const ftsScore = 1 / (1 + Math.max(0, Number(r.rank)));
-        const v = vScores.get(String(r.id)) ?? 0;
-        const score = (0.5 * ftsScore + 0.5 * v) * (v > 0 ? 1.1 : 1) * (r.superseded_by ? 0.3 : 1);
-        merged.set(String(r.id), { id: r.id, content: r.content, source: r.source, superseded_by: r.superseded_by, score });
-      }
-      for (const [id, v] of vScores) {
-        if (merged.has(id)) continue;
+      // Ranking v2 (U1+U2): rank-only RRF over the two lists (bm25 and cosine scales never mix), then
+      // bounded boosts (recency/usage/trust) — relevance dominates, metadata nudges. See oracle-lite/rank.ts.
+      const byId = new Map<string, any>();
+      for (const r of ftsRows) byId.set(String(r.id), r);
+      const vRanked = [...vScores.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+      for (const id of vRanked) {
+        if (byId.has(id)) continue;
         const d = getDocStmt.get(id) as any;
-        if (!d || (project && d.project !== project)) continue;
-        merged.set(id, { id, content: d.content, source: d.source ?? "vector", superseded_by: d.superseded_by, score: 0.5 * v * (d.superseded_by ? 0.3 : 1) });
+        if (!d || (project && d.project !== project)) { byId.set(id, null); continue; } // out of project — keep rank slot, drop doc
+        byId.set(id, d);
       }
+      const fused = rrf([ftsRows.map((r) => String(r.id)), vRanked]);
+      const now = Date.now();
+      const cands = [...fused.entries()].map(([id, base]) => ({ id, base, doc: byId.get(id) })).filter((c) => c.doc);
+      const maxUsed = Math.max(0, ...cands.map((c) => Number(c.doc.times_used ?? 0)));
+      const scored = cands.map((c) => ({
+        ...c,
+        score: boost(c.base, {
+          trust: Number(c.doc.trust ?? 0.5),
+          timesUsed: Number(c.doc.times_used ?? 0),
+          maxUsed,
+          daysSinceAccess: daysBetween(c.doc.last_accessed_at ?? c.doc.created_at, now),
+          superseded: !!c.doc.superseded_by,
+        }),
+      }));
 
-      const results = [...merged.values()]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
-        .map((r) => ({
-          id: r.id,
-          content: String(r.content).slice(0, 2000),
-          type: "learning",
-          source: r.source ?? "fts",
-          superseded_by: r.superseded_by ?? undefined,
-          score: r.score,
-        }));
+      const top = scored.sort((a, b) => b.score - a.score).slice(0, limit);
+      const nowIso = new Date().toISOString();
+      for (const r of top) touchStmt.run(nowIso, r.id); // recency reinforcement + observability
+      const results = top.map((r) => ({
+        id: r.id,
+        content: String(r.doc.content).slice(0, 2000),
+        type: "learning",
+        source: r.doc.source ?? "fts",
+        superseded_by: r.doc.superseded_by ?? undefined,
+        trust: Number(r.doc.trust ?? 0.5),
+        score: r.score,
+      }));
       return Response.json({ results, total: results.length, query: q, mode, vectors: vectorsOn, embedder });
     }
 
