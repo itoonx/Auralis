@@ -44,11 +44,20 @@ const SPECS: Record<string, Spec> = {
     core: RPS_CORE,
     testFile: "game.test.js",
     cli: (ws) => {
-      const r = runNode(ws, ["cli.js"], "rock\n");
-      const out = (r.stdout ?? "") + (r.stderr ?? "");
-      const crashed = r.status !== 0 && r.status !== null; // null = timeout-kill (loop by design) is OK
-      const emitted = /\b(win|lose|tie)\b/i.test(out);
-      return { ok: emitted && !crashed, detail: emitted && !crashed ? undefined : crashed ? firstLines(out) || "crashed" : "no win/lose/tie printed" };
+      // A CLI may read a move from stdin (readline) OR from argv — accept either; the game logic is the
+      // contract, the I/O style is not. Try each; pass if any prints an outcome without crashing.
+      const attempts: { args: string[]; input?: string }[] = [
+        { args: ["cli.js"], input: "rock\n" },
+        { args: ["cli.js", "rock"] },
+        { args: ["cli.js", "rock", "scissors"] },
+      ];
+      for (const a of attempts) {
+        const r = runNode(ws, a.args, a.input);
+        const out = (r.stdout ?? "") + (r.stderr ?? "");
+        const crashed = r.status !== 0 && r.status !== null; // null = timeout-kill (a stdin loop) is fine
+        if (!crashed && /\b(win|lose|tie)\b/i.test(out)) return { ok: true };
+      }
+      return { ok: false, detail: "cli printed no win/lose/tie via stdin or argv" };
     },
   },
   todo: {

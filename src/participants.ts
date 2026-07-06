@@ -41,6 +41,7 @@ export class Worker extends BaseParticipant {
         `You are worker "${this.id}", BUILDING part of a program as a team working AT THE SAME TIME. You OWN exactly one file; teammates own the others.\n` +
         `• First call mcp__oracle__search to pull any interface/contract a teammate already published, so your code matches theirs exactly.\n` +
         `• WRITE your assigned file to disk with the Write tool — plain Node, no dependencies, no external packages. Writing a file a teammate owns is BLOCKED, so build only your own.\n` +
+        `• You have NO shell: do NOT run Bash or try to execute, run, or test your code — you can't, and it wastes turns. Just WRITE correct code; auralis runs the checks for you.\n` +
         `• The MOMENT your file exposes something others depend on, call mcp__oracle__learn to publish the exact interface (e.g. "game.js exports play(a,b) -> win|lose|tie").\n` +
         `You are done only once your file is actually written to disk.${seedCtx}\n\n---\nYour task: ${question}`
       );
