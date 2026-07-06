@@ -308,6 +308,29 @@ progress won't cut them off — a build survived a 60s base timeout in testing, 
 The `build` tool also **reworks** on acceptance failure (same closed loop as the CLI). Caveats: a build runs
 several minutes and its workers bill your account; oracle-lite uses port 47778.
 
+### Session capture — your Claude Code session feeds the same brain
+
+`hooks/session-capture.mjs` (registered in `.claude/settings.json`) captures the **interactive session
+itself** into oracle-lite, and injects repo memory back into every prompt. It coexists with ambient memory
+tools like Cognee — different lane: Cognee is global session memory; this is the *repo's engineering
+brain*, the same one the fleet uses. So what you tell Claude Code becomes recallable by fleet workers, and
+fleet findings surface back in your session — bidirectional, which a standalone memory plugin can't do.
+
+What makes it different is the **ingress**: every event is classified into the right lane *at write time*,
+deterministically, with **no LLM in the write path** (free, searchable the same instant — no ingestion queue):
+
+| Session event | Lane | Trust | Fate |
+|---|---|---|---|
+| Substantive prompt (≥80 chars) | knowledge (`learn`) | **1.0** (human) | unpinned — fades if never used |
+| Trivial prompt / slash / `!shell` | timeline only / dropped | — | never pollutes recall |
+| Assistant conclusion (≥120 chars) | knowledge (`learn`) | 0.5 (agent) | credibility earned via `cite` |
+| `Write`/`Edit` | timeline trace only | — | observability, **never knowledge** |
+| Commits, reads, other tools | **dropped** | — | git already records them |
+
+Recall runs *before* capture (a prompt is never echoed back at itself), shows each hit's id, and teaches
+`cite` at the point of use — so session memories join the same usage-ranking and forgetting lifecycle as
+everything else. Fail-silent: a dead oracle never breaks your session.
+
 ## Command reference
 
 `pnpm run help` prints this live. Everything runs via env vars + pnpm scripts (no unified CLI yet).
