@@ -103,7 +103,7 @@ export function GraphPanel({ project, tick }: { project: string; tick: number })
     <Card>
       <CardHeader className="pb-3">
         <CardTitle>Knowledge graph
-          <span className="text-xs font-normal text-muted-foreground"> {nodeCount} nodes · {edges.length} edges · drag / hover</span>
+          <span className="text-xs font-normal text-muted-foreground"> {nodeCount} nodes · {edges.length} edges · drag to pin · double-click to unpin</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
