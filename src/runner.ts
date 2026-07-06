@@ -32,7 +32,9 @@ export class ClaudeCodeRunner implements AgentRunner {
   // if a teammate already owns that file — deterministic prevention, not a request the LLM may ignore.
   // `build` = write mode: the worker may Edit/Write its OWN file (claim guards writes, not reads) and every
   // write is confined to the workspace dir. Off = analyse mode: read-only, claim guards reads (dedup).
-  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; build?: boolean; claim?: (target: string) => Promise<{ ok: boolean; owner: string }> }) {}
+  // `onStep` (optional) narrates every tool call as it happens — the fix for the silent 50–70s while a
+  // worker runs. It fires for EVERY tool_use (Read/Grep/Write and mcp__oracle__*), not just tracked reads.
+  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; build?: boolean; claim?: (target: string) => Promise<{ ok: boolean; owner: string }>; onStep?: (tool: string, target?: string) => void }) {}
 
   async run(prompt: string): Promise<RunResult> {
     const explored: Exploration[] = [];
@@ -88,9 +90,10 @@ export class ClaudeCodeRunner implements AgentRunner {
         const msg: any = m;
         if (msg.type === "assistant") {
           for (const block of msg.message?.content ?? []) {
-            if (block?.type === "tool_use" && track.has(block.name)) {
+            if (block?.type === "tool_use") {
               const target = targetOf(block.name, block.input);
-              if (target) explored.push({ tool: block.name, target });
+              if (track.has(block.name) && target) explored.push({ tool: block.name, target });
+              this.opts.onStep?.(block.name, target); // narrate EVERY tool call (incl. brain calls) live
             }
           }
         } else if (msg.type === "result" && msg.subtype === "success") {

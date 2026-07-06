@@ -3,6 +3,7 @@
 // baseline/shared fleet with a chosen concurrency.
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { AgenticEnvironment } from "@mozaik-ai/core";
 import { oracleReachable, type MemoryAdapter } from "./memory";
 import { ClaudeCodeRunner } from "./runner";
@@ -10,7 +11,7 @@ import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { planGoal, planBuild } from "./planner";
 import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
-import { makeEmitter } from "./narrate";
+import { makeEmitter, format } from "./narrate";
 import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
@@ -45,9 +46,26 @@ export async function ensureOracle(): Promise<() => void> {
   throw new Error("oracle-lite failed to start on :47778");
 }
 
+// One place that narrates a line: to stderr (visible on the CLI; the MCP server redirects console.log→stderr
+// so it's safe there too) and to the MCP progress channel when present. AURALIS_QUIET=1 silences the echo.
+function narrateLine(human: string, onProgress?: (m: string) => void): void {
+  if (process.env.AURALIS_QUIET !== "1") console.error(human);
+  onProgress?.(human);
+}
+
+// An onStep for one actor (a worker id, or "planner"): formats each tool call and narrates it live. Paths
+// under `base` are shown relative so the line stays short; patterns/other targets pass through unchanged.
+export function stepSink(actor: string, base: string, onProgress?: (m: string) => void): (tool: string, target?: string) => void {
+  const root = resolve(base);
+  return (tool, target) => {
+    const shown = target ? " " + (target.startsWith(root) ? relative(root, target) || "." : target) : "";
+    narrateLine(format("intent", `${actor} → ${tool}${shown}`), onProgress);
+  };
+}
+
 // Fixed task set (AURALIS_TASKS = inline JSON or a file path) keeps benchmark trials comparable;
-// otherwise the Planner decomposes the goal live.
-export async function resolveTasks(projectDir: string, goal: string, planTurns: number, build = false): Promise<DagNode[]> {
+// otherwise the Planner decomposes the goal live. onStep narrates the planner's own tool calls.
+export async function resolveTasks(projectDir: string, goal: string, planTurns: number, build = false, onStep?: (tool: string, target?: string) => void): Promise<DagNode[]> {
   const raw = process.env.AURALIS_TASKS;
   if (raw && raw.trim()) {
     const text = raw.trim().startsWith("[") ? raw : readFileSync(raw, "utf8");
@@ -60,7 +78,7 @@ export async function resolveTasks(projectDir: string, goal: string, planTurns: 
         dependsOn: Array.isArray(x.dependsOn) ? x.dependsOn.map(String) : [],
       }));
   }
-  const planner = new ClaudeCodeRunner({ cwd: projectDir, maxTurns: planTurns });
+  const planner = new ClaudeCodeRunner({ cwd: projectDir, maxTurns: planTurns, onStep });
   return build ? planBuild(planner, goal) : planGoal(planner, goal);
 }
 
@@ -88,7 +106,7 @@ export async function runFleet(
   const runId = `${cfg.project}:${label}:${new Date().toISOString()}`;
   const emit =
     process.env.AURALIS_TIMELINE !== "0" && adapter.recordEvent
-      ? makeEmitter({ adapter, runId, project: cfg.project, onEvent: cfg.onProgress ? (_k, _a, human) => cfg.onProgress!(human) : undefined })
+      ? makeEmitter({ adapter, runId, project: cfg.project, onEvent: (_k, _a, human) => narrateLine(human, cfg.onProgress) })
       : undefined;
   const auditor = new Auditor();
   auditor.join(env);
@@ -115,7 +133,8 @@ export async function runFleet(
             return r;
           }
         : undefined;
-    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain, claim, build: cfg.build }), !!brain, cfg.build);
+    const onStep = stepSink(id, cfg.projectDir, cfg.onProgress); // narrate this worker's tool calls live
+    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain, claim, build: cfg.build, onStep }), !!brain, cfg.build);
     w.join(env);
     return w;
   };

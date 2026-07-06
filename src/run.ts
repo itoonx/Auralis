@@ -5,7 +5,7 @@
 import { resolve } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { OracleAdapter, NullMemoryAdapter } from "./memory";
-import { ensureOracle, resolveTasks, runFleet } from "./fleet";
+import { ensureOracle, resolveTasks, runFleet, stepSink } from "./fleet";
 import { explainProvenance } from "./audit";
 import { buildLevels } from "./dag";
 import { fleetRedundantCount, reductionPct } from "./metrics";
@@ -42,7 +42,7 @@ async function main() {
   const stop = await log.time("oracle.boot", undefined, () => ensureOracle());
   try {
     console.log("· resolving tasks…");
-    const nodes = await log.time("plan", undefined, () => resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS, BUILD));
+    const nodes = await log.time("plan", undefined, () => resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS, BUILD, stepSink("planner", PROJECT_DIR)));
     console.log(`${nodes.length} task(s), ${buildLevels(nodes).length} level(s): ${nodes.map((n) => n.id).join(", ")}`);
     const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, workerPull: WORKER_PULL, build: BUILD, out: OUT };
 

@@ -16,7 +16,7 @@ import { z } from "zod";
 import { resolve } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { OracleAdapter } from "./memory";
-import { ensureOracle, resolveTasks, runFleet } from "./fleet";
+import { ensureOracle, resolveTasks, runFleet, stepSink } from "./fleet";
 import { buildWithRework } from "./build";
 
 // Bridge fleet coordination events to MCP progress notifications: keeps a long tool call alive (clients that
@@ -63,7 +63,7 @@ server.tool(
     const { onProgress, stop: stopHb } = startProgress(extra);
     const stop = await ensureOracle();
     try {
-      const nodes = await resolveTasks(projectDir, goal, 6);
+      const nodes = await resolveTasks(projectDir, goal, 6, false, stepSink("planner", projectDir, onProgress));
       const { outcome } = await runFleet("mcp", new OracleAdapter(), nodes, {
         projectDir, project: project ?? "default", maxTurns: 10, concurrency: 3, maxRetries: 1, workerPull: true, onProgress,
       });
@@ -92,7 +92,7 @@ server.tool(
     const { onProgress, stop: stopHb } = startProgress(extra);
     const stop = await ensureOracle();
     try {
-      const nodes = await resolveTasks(projectDir, goal, 6, true); // build-aware planner
+      const nodes = await resolveTasks(projectDir, goal, 6, true, stepSink("planner", projectDir, onProgress)); // build-aware planner
       // Same closed loop as the CLI: on acceptance FAIL, rework the fleet (bounded). Progress keeps the call alive.
       const { shared, acc, attempts } = await buildWithRework(
         new OracleAdapter(),
