@@ -1,23 +1,21 @@
-// The analytical panels behind the dashboard tabs. Each fetches its own slice of the brain and refetches
-// on the shared `tick` the parent bumps while live. Kept in one file — they're small and always shipped together.
-import { useEffect, useState } from "react"
+// The analytical panels behind the dashboard tabs. Each fetches its own slice of the brain via usePoll
+// (stale-guarded) and refetches on the shared `tick` the parent bumps while live. Kept in one file —
+// they're small and always shipped together.
+import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import {
-  getDecisions, getGraphAll, getRuns, getTiming, search,
-  type Decision, type GraphAllEdge, type RunSummary, type SearchResult, type Timing,
-} from "@/lib/api"
+import { getDecisions, getGraphAll, getRuns, getTiming, search, type SearchResult } from "@/lib/api"
+import { usePoll } from "@/lib/use-poll"
 import { ForceGraph } from "@/components/force-graph"
 
 const fmt = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(ms < 10 ? 1 : 0)}ms`)
 
 // ── Timing: where wall-clock actually went. Bars relative to the biggest phase; the point is that the LLM dominates.
 export function TimingPanel({ tick }: { tick: number }) {
-  const [t, setT] = useState<Timing | null>(null)
-  useEffect(() => { getTiming().then(setT).catch(() => setT(null)) }, [tick])
+  const { data: t } = usePoll(getTiming, [tick])
   const top = t?.phases.reduce((m, p) => Math.max(m, p.total), 0) || 1
   return (
     <Card>
@@ -51,8 +49,8 @@ export function TimingPanel({ tick }: { tick: number }) {
 
 // ── Runs: history + per-run scorecard. Click a row to drive the timeline (compare by eyeballing the columns).
 export function RunsPanel({ project, tick, selected, onSelect }: { project: string; tick: number; selected: string; onSelect: (runId: string) => void }) {
-  const [runs, setRuns] = useState<RunSummary[]>([])
-  useEffect(() => { getRuns(project).then((d) => setRuns(d.runs)).catch(() => setRuns([])) }, [project, tick])
+  const { data } = usePoll(() => getRuns(project), [project, tick])
+  const runs = data?.runs ?? []
   return (
     <Card>
       <CardHeader className="pb-3"><CardTitle>Runs <span className="text-xs font-normal text-muted-foreground">click one to drive the timeline</span></CardTitle></CardHeader>
@@ -93,9 +91,9 @@ export function RunsPanel({ project, tick, selected, onSelect }: { project: stri
 // ── Graph: the whole knowledge graph as a force-directed view. Drag to pin, hover to spotlight a node's
 // neighborhood, click a node to list its edges below.
 export function GraphPanel({ project, tick }: { project: string; tick: number }) {
-  const [edges, setEdges] = useState<GraphAllEdge[]>([])
+  const { data } = usePoll(() => getGraphAll(project), [project, tick])
+  const edges = data?.edges ?? []
   const [sel, setSel] = useState("")
-  useEffect(() => { getGraphAll(project).then((d) => setEdges(d.edges)).catch(() => setEdges([])) }, [project, tick])
   const nodeCount = new Set(edges.flatMap((e) => [e.subj_key, e.obj_key])).size
   const nbr = sel ? edges.filter((e) => e.subj_key === sel || e.obj_key === sel) : []
   return (
@@ -131,8 +129,8 @@ export function GraphPanel({ project, tick }: { project: string; tick: number })
 // ── Decisions: the honest ADR log straight from the brain. Superseded ones are kept and flagged (reversed,
 // never deleted) — the values layer, visible.
 export function DecisionsPanel({ project, tick }: { project: string; tick: number }) {
-  const [decisions, setDecisions] = useState<Decision[]>([])
-  useEffect(() => { getDecisions(project).then((d) => setDecisions(d.decisions)).catch(() => setDecisions([])) }, [project, tick])
+  const { data } = usePoll(() => getDecisions(project), [project, tick])
+  const decisions = data?.decisions ?? []
   return (
     <Card>
       <CardHeader className="pb-3">

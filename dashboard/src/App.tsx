@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { Activity, Database, GitBranch, Network, Pause, Play, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DecisionsPanel, GraphPanel, RunsPanel, SearchPanel, TimingPanel } from "@/components/panels"
-import { getDocs, getProjects, getStats, getTimeline, scorecard, type Finding, type ProjectInfo, type Stats, type TimelineEvent } from "@/lib/api"
+import { getDocs, getProjects, getStats, getTimeline, scorecard } from "@/lib/api"
+import { usePoll } from "@/lib/use-poll"
 
 // Glyph + accent per event kind — mirrors the CLI reader so the timeline reads the same in both places.
 const KIND: Record<string, { glyph: string; cls: string }> = {
@@ -38,44 +39,34 @@ function Stat({ icon, label, value, sub }: { icon: ReactNode; label: string; val
 
 export default function App() {
   const [project, setProject] = useState("")
-  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [tick, setTick] = useState(0)
   const [runSel, setRunSel] = useState("") // "" = newest run for the project
-  const [events, setEvents] = useState<TimelineEvent[]>([])
-  const [runId, setRunId] = useState("")
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [docs, setDocs] = useState<Finding[]>([])
-  const [error, setError] = useState<string | null>(null)
   const [live, setLive] = useState(true)
-  const [updatedAt, setUpdatedAt] = useState("")
 
   useEffect(() => { document.documentElement.classList.add("dark") }, [])
 
   // Discover which projects actually have data and default to the most-active one, so the dashboard isn't
   // blank on load (the old hardcoded "default" project is almost always empty). Refreshes with the live tick.
+  const pr = usePoll(getProjects, [tick])
+  const projects = pr.data?.projects ?? []
   useEffect(() => {
-    getProjects().then(({ projects }) => {
-      setProjects(projects)
-      setProject((p) => p || projects[0]?.project || "default")
-    }).catch(() => {})
-  }, [tick])
+    if (pr.data) setProject((p) => p || pr.data?.projects[0]?.project || "default")
+  }, [pr.data])
 
-  const load = useCallback(async () => {
-    if (!project) return // wait until the project picker has resolved (avoids a blank project= query)
-    try {
-      const [tl, st, dc] = await Promise.all([getTimeline(project, runSel || undefined), getStats(project), getDocs(project)])
-      setEvents(tl.events)
-      setRunId(tl.run ?? "")
-      setStats(st)
-      setDocs(dc.docs)
-      setError(null)
-      setUpdatedAt(new Date().toLocaleTimeString())
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }, [project, runSel])
+  // The main slice — disabled (null fetcher) until the project picker has resolved.
+  const main = usePoll(
+    project ? () => Promise.all([getTimeline(project, runSel || undefined), getStats(project), getDocs(project)]) : null,
+    [project, runSel, tick],
+  )
+  const [tl, stats, dc] = main.data ?? [null, null, null]
+  const events = tl?.events ?? []
+  const runId = tl?.run ?? ""
+  const docs = dc?.docs ?? []
+  const updatedAt = main.at
+  // Either failing fetch means the brain is unreachable — surface it (a dead oracle used to render a
+  // silently blank dashboard, because the main load never ran without a resolved project).
+  const error = pr.error ?? main.error
 
-  useEffect(() => { load() }, [load, tick])
   useEffect(() => {
     if (!live) return
     const id = setInterval(() => setTick((t) => t + 1), 3000)
