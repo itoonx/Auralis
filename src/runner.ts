@@ -52,7 +52,7 @@ export class ClaudeCodeRunner implements AgentRunner {
     };
     if (this.opts.brain) {
       options.mcpServers = { oracle: this.opts.brain };
-      options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide", "mcp__oracle__note"];
+      options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide", "mcp__oracle__note", "mcp__oracle__cite"];
     }
     // A PreToolUse hook is the only place a tool can actually be BLOCKED. In build mode it guards WRITES
     // (anti-clobber via the claim + workspace path confinement); in analyse mode it guards READS (dedup).

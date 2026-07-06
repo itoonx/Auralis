@@ -9,8 +9,11 @@ import type { Emit } from "./narrate";
 
 export async function brainSearch(adapter: MemoryAdapter, project: string, query: string): Promise<string> {
   const hits = await adapter.search(query, { project, limit: 5 });
+  // Ids are shown so the worker can CITE the finding that actually helped (U3) — citation, not retrieval,
+  // is what feeds the usage boost, so ranking can't self-reinforce its own winners.
   return hits.length
-    ? hits.map((h) => `- ${h.content}`).join("\n")
+    ? hits.map((h) => `- [${h.id}] ${h.content}`).join("\n") +
+        "\n(if one of these materially helps your work, call mcp__oracle__cite with its id)"
     : "(nothing in the shared brain for that query yet — explore and then record what you find)";
 }
 
@@ -28,8 +31,9 @@ export interface LiveStats {
   learns: number;
   claims: number; // targets a worker successfully claimed (its own to explore)
   skips: number; // targets a worker skipped because a teammate already claimed them — a *prevented* duplicate
+  cites: number; // findings a worker explicitly cited as having helped (feeds the usage ranking boost)
 }
-export const newLiveStats = (): LiveStats => ({ searches: 0, hits: 0, learns: 0, claims: 0, skips: 0 });
+export const newLiveStats = (): LiveStats => ({ searches: 0, hits: 0, learns: 0, claims: 0, skips: 0, cites: 0 });
 
 export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), project = "default", stats?: LiveStats, emit?: Emit, workerId = "worker") {
   return createSdkMcpServer({
@@ -65,6 +69,22 @@ export function brainMcpServer(adapter: MemoryAdapter = new OracleAdapter(), pro
           const text = await brainLearn(adapter, project, args.finding);
           if (stats) stats.learns++;
           return { content: [{ type: "text", text }] };
+        },
+      ),
+      tool(
+        "cite",
+        "Credit a shared-brain finding that MATERIALLY helped your work (you used its interface/fact in what " +
+          "you produced). Pass the id shown in [brackets] by search. Cite only real help — this feeds ranking.",
+        { id: z.string().describe("the finding id shown in [brackets] in search results") },
+        async (args) => {
+          try {
+            await adapter.cite?.(args.id);
+            if (stats) stats.cites++;
+            emit?.("note", workerId, `${workerId} cited ${args.id}`, { nodeId: workerId, refs: [args.id] });
+            return { content: [{ type: "text", text: "cited — this finding's usefulness is now on record" }] };
+          } catch {
+            return { content: [{ type: "text", text: "cite failed (best-effort — continue your task)" }] };
+          }
         },
       ),
       tool(

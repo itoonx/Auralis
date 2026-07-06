@@ -271,6 +271,16 @@ const server = Bun.serve({
 
     // Concurrent-dedup claim: first worker to claim a (scope,target) owns it; a later, different worker is
     // told to skip. This is the shared enforcement point for ANY agent runtime, not just the Claude hook.
+    // U3 usage feedback: a worker cited this finding as having materially helped. Citation (not retrieval)
+    // feeds the usage boost — see the touchStmt comment for why. Idempotent-ish, append-only in spirit.
+    if (req.method === "POST" && url.pathname === "/api/cite") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const id = String(body?.id ?? "").trim();
+      if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+      const r = db.query("UPDATE docs SET times_used = times_used + 1, last_accessed_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+      return Response.json({ success: (r as any).changes !== 0 });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/claim") {
       const body = (await req.json().catch(() => ({}))) as any;
       const scope = String(body?.scope ?? "default");

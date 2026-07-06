@@ -81,7 +81,7 @@ async function main() {
     console.log("\n─── auralis fleet run ───");
     if (baseRead !== undefined) console.log(`baseline: read-redundant=${baseRead} file(s), sentry overlap warnings=${baseWarnings}`);
     console.log(`shared  : read-redundant=${sharedRead} file(s), scan-redundant=${sharedScan} glob/grep, sentry overlap warnings=${shared.warnings}, reuses=${shared.outcome.reuses}, self-repairs=${shared.outcome.repairs}`);
-    console.log(`realtime: live-pushes=${shared.live.learns}, live-pulls=${shared.live.hits}/${shared.live.searches} hit, claims=${shared.live.claims}, prevented-dupes=${shared.live.skips}`);
+    console.log(`realtime: live-pushes=${shared.live.learns}, live-pulls=${shared.live.hits}/${shared.live.searches} hit, claims=${shared.live.claims}, prevented-dupes=${shared.live.skips}, cites=${shared.live.cites}`);
     const written = [...new Set(explored.flat().filter((e) => WRITE_ONLY.has(e.tool)).map((e) => e.target))];
     if (BUILD) console.log(`build   : files-written=${written.length} [${written.join(", ")}], write-collisions=${fleetRedundantCount(explored, WRITE_ONLY)}, prevented-clobbers=${shared.live.skips}`);
     if (BUILD && acc) console.log(`accept  : ${acc.pass ? "✅ PASS" : `❌ FAIL after ${REWORK} rework(s)`}${acc.pass ? "" : ` — ${acc.failLines.replace(/\n/g, "; ")}`}`);

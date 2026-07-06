@@ -50,6 +50,8 @@ export interface MemoryAdapter {
   // Concurrent-dedup claim, resolved by the shared brain so it holds across processes and agent runtimes.
   claim?(scope: string, target: string, by: string): Promise<ClaimResult>;
   claimReset?(scope: string): Promise<void>;
+  // U3 usage feedback: a worker CITES a finding that materially helped — bumps its usage ranking boost.
+  cite?(id: string): Promise<void>;
   // Activity timeline (append-only): record one narrated event; replay a run's events in order.
   recordEvent?(e: TimelineEvent): Promise<void>;
   timeline?(opts?: { run?: string; project?: string; limit?: number }): Promise<TimelineEvent[]>;
@@ -212,6 +214,17 @@ export class OracleAdapter implements MemoryAdapter {
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) throw new Error(`oracle claim/reset ${res.status}`);
+  }
+
+  // U3: credit a finding that materially helped (bumps times_used → the usage ranking boost).
+  async cite(id: string): Promise<void> {
+    const res = await fetch(new URL("/api/cite", this.baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) throw new Error(`oracle cite ${res.status}`);
   }
 
   // Append one timeline event. Throws on failure like the other adapter calls; the emit helper
