@@ -76,6 +76,7 @@ Full list + defaults in `.env.example`. The ones that matter most:
 |---|---|
 | `AURALIS_SEMANTIC=1` | real sentence-embedding recall (starts the embed sidecar) |
 | `ORACLE_GRAPH=0` | opt OUT of the automatic heuristic graph — the brain builds edges **on every learn** by default (incremental, idempotent, no LLM) |
+| `search?as_of=<ISO>` | **temporal retrieval** — "what was TRUE at time T" (valid-time): returns docs whose validity interval covers T; superseded docs never qualify. `POST /api/invalidate {oldId, newId?, reason?, invalidAt?}` ends a fact's validity ("the world changed" — distinct from supersede = "we were wrong"); `learn` accepts `validAt` to back-date when a fact became true |
 | `AURALIS_BUILD_GRAPH_LLM` | real predicates via Claude Code for the **batch refinement** (`pnpm build-graph` / `pnpm analyze`) — **on by default**; `=0` for the free heuristic |
 | `AURALIS_DISTILL_LLM=1` | distill with Claude Code for real merges (costs) |
 

@@ -41,6 +41,14 @@ try { db.run("ALTER TABLE docs ADD COLUMN retrieved_count INTEGER DEFAULT 0;"); 
 // deleted); pinned = decisions/retros/human-stated — exempt from archiving, forever.
 try { db.run("ALTER TABLE docs ADD COLUMN archived INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
 try { db.run("ALTER TABLE docs ADD COLUMN pinned INTEGER DEFAULT 0;"); } catch { /* column already exists */ }
+// U6 bi-temporal: two DIFFERENT ways a doc stops being current, kept distinct on purpose —
+//   superseded_*  = we were WRONG (the fact never held; the correction replaces it),
+//   invalid_*     = the WORLD CHANGED (the fact was true from valid_at until invalid_at).
+// valid_at NULL means "true since created_at". Nothing is deleted either way; ranking sinks both.
+try { db.run("ALTER TABLE docs ADD COLUMN valid_at TEXT;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN invalid_at TEXT;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN invalidated_by TEXT;"); } catch { /* column already exists */ }
+try { db.run("ALTER TABLE docs ADD COLUMN invalidated_reason TEXT;"); } catch { /* column already exists */ }
 // Backfill for brains that predate the trust/pinned columns: the ALTER default (0.5/0) can't know the
 // source, so retros/decisions/humans in an upgraded brain would rank and archive as ordinary worker
 // findings. Recompute the priors for rows still at the default — idempotent, respects later overrides.
@@ -70,11 +78,12 @@ db.run(`CREATE TABLE IF NOT EXISTS events (
   human TEXT, node_id TEXT, parent_node TEXT, refs TEXT, ts TEXT
 );`);
 
-const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier, trust, pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+const insDoc = db.query("INSERT INTO docs (id, content, concepts, project, source, created_at, tier, trust, pinned, valid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+const invalidateStmt = db.query("UPDATE docs SET invalid_at = ?, invalidated_by = ?, invalidated_reason = ? WHERE id = ?");
 const insFts = db.query("INSERT INTO docs_fts (id, content, concepts) VALUES (?, ?, ?)");
 const supersedeStmt = db.query("UPDATE docs SET superseded_by = ?, superseded_at = ?, superseded_reason = ? WHERE id = ?");
 const countStmt = db.query("SELECT COUNT(*) AS c FROM docs");
-const getDocStmt = db.query("SELECT id, content, source, superseded_by, project, trust, times_used, last_accessed_at, created_at, archived FROM docs WHERE id = ?");
+const getDocStmt = db.query("SELECT id, content, source, superseded_by, project, trust, times_used, last_accessed_at, created_at, archived, valid_at, invalid_at FROM docs WHERE id = ?");
 // Serving a doc touches its access columns: retrieved_count is observability; last_accessed_at feeds the
 // recency boost (MemoryBank-style reinforcement). times_used is NOT bumped here — usage counts citations
 // only (U3), never retrievals, or ranking self-reinforces its own winners (Memoria's documented mistake).
@@ -83,17 +92,16 @@ const insEdge = db.query("INSERT OR IGNORE INTO edges (subject, predicate, objec
 const insEvent = db.query("INSERT INTO events (run_id, project, kind, actor, human, node_id, parent_node, refs, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq");
 const edgeCountStmt = db.query("SELECT COUNT(*) AS c FROM edges");
 const nodeCountStmt = db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges UNION SELECT obj_key FROM edges)");
-const searchStmt = db.query(
-  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
+const SEARCH_COLS = `d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
           d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
-          bm25(docs_fts) AS rank
+          d.valid_at AS valid_at, d.invalid_at AS invalid_at`;
+const searchStmt = db.query(
+  `SELECT ${SEARCH_COLS}, bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
    WHERE docs_fts MATCH ? AND d.archived = 0 ORDER BY rank LIMIT ?`,
 );
 const searchDeepStmt = db.query(
-  `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
-          d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
-          bm25(docs_fts) AS rank
+  `SELECT ${SEARCH_COLS}, bm25(docs_fts) AS rank
    FROM docs_fts JOIN docs d ON d.id = docs_fts.id
    WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?`,
 );
@@ -311,7 +319,10 @@ const server = Bun.serve({
       const source = String(body?.source ?? "auralis");
       // pinned: explicit body flag wins (e.g. a retro with a real lesson); else derived from the source.
       const pinned = typeof body?.pinned === "boolean" ? body.pinned : pinnedOf(source);
-      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinned ? 1 : 0);
+      // validAt (optional, ISO): when the fact became true IN THE WORLD — lets a correction recorded today
+      // describe a truth that started last month. Defaults to "since created_at" (NULL).
+      const validAt = typeof body?.validAt === "string" && !Number.isNaN(Date.parse(body.validAt)) ? new Date(body.validAt).toISOString() : null;
+      insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinned ? 1 : 0, validAt);
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
       // Incremental graph AT THE INGRESS: every learn extracts heuristic triplets (pure, ~8.5ms measured,
@@ -357,6 +368,18 @@ const server = Bun.serve({
       if (!oldId || !newId) return Response.json({ error: "oldId and newId are required" }, { status: 400 });
       supersedeStmt.run(newId, new Date().toISOString(), body?.reason ?? null, oldId);
       return Response.json({ success: true, oldId, newId });
+    }
+
+    // U6: the world changed — the fact WAS true and stopped being true at invalidAt (default: now).
+    // Distinct from supersede (= we were wrong). The doc stays searchable; ranking sinks it like a
+    // superseded one, and as_of queries before invalidAt still return it — that is the whole point.
+    if (req.method === "POST" && url.pathname === "/api/invalidate") {
+      const body = (await req.json().catch(() => ({}))) as any;
+      const oldId = String(body?.oldId ?? "");
+      if (!oldId) return Response.json({ error: "oldId is required" }, { status: 400 });
+      const invalidAt = typeof body?.invalidAt === "string" && !Number.isNaN(Date.parse(body.invalidAt)) ? new Date(body.invalidAt).toISOString() : new Date().toISOString();
+      invalidateStmt.run(invalidAt, body?.newId ?? null, body?.reason ?? null, oldId);
+      return Response.json({ success: true, oldId, invalidAt });
     }
 
     // Concurrent-dedup claim: first worker to claim a (scope,target) owns it; a later, different worker is
@@ -590,6 +613,13 @@ const server = Bun.serve({
       // rank=plain returns pure relevance order (RRF only, no trust/recency/usage/supersede boosts) — the
       // A/B baseline the ranking bench compares against, so we can MEASURE whether the boosts earn their place.
       const plain = url.searchParams.get("rank") === "plain";
+      // U6 temporal retrieval — as_of=<ISO> answers "what was TRUE at time T" (VALID-time semantics):
+      // keep docs whose validity interval covers T (valid_at ?? created_at <= T < invalid_at), and still
+      // exclude superseded ones — a corrected doc was never true, at any time; its correction (which may
+      // carry a back-dated validAt) is the truth about T. "What did we BELIEVE at T" (transaction time) is
+      // a different question, deliberately not implemented until someone needs it.
+      const asOfRaw = url.searchParams.get("as_of");
+      const asOf = asOfRaw && !Number.isNaN(Date.parse(asOfRaw)) ? Date.parse(asOfRaw) : null;
 
       const ftsRows =
         mode === "vector"
@@ -597,9 +627,7 @@ const server = Bun.serve({
           : ((project
               ? db
                   .query(
-                    `SELECT d.id AS id, d.content AS content, d.source AS source, d.superseded_by AS superseded_by,
-                            d.trust AS trust, d.times_used AS times_used, d.last_accessed_at AS last_accessed_at, d.created_at AS created_at,
-                            bm25(docs_fts) AS rank
+                    `SELECT ${SEARCH_COLS}, bm25(docs_fts) AS rank
                      FROM docs_fts JOIN docs d ON d.id = docs_fts.id
                      WHERE docs_fts MATCH ? AND d.project = ? ${deep ? "" : "AND d.archived = 0"} ORDER BY rank LIMIT ?`,
                   )
@@ -620,8 +648,20 @@ const server = Bun.serve({
       }
       const fused = rrf([ftsRows.map((r) => String(r.id)), vRanked]);
       const now = Date.now();
-      const cands = [...fused.entries()].map(([id, base]) => ({ id, base, doc: byId.get(id) })).filter((c) => c.doc);
+      let cands = [...fused.entries()].map(([id, base]) => ({ id, base, doc: byId.get(id) })).filter((c) => c.doc);
+      if (asOf !== null) {
+        // Truth-at-T: validity interval must cover T, and superseded docs never qualify (they were wrong).
+        cands = cands.filter((c) => {
+          if (c.doc.superseded_by) return false;
+          const from = Date.parse(c.doc.valid_at ?? c.doc.created_at ?? "") || 0;
+          const until = c.doc.invalid_at ? Date.parse(c.doc.invalid_at) : Infinity;
+          return from <= asOf && asOf < until;
+        });
+      }
       const maxUsed = Math.max(0, ...cands.map((c) => Number(c.doc.times_used ?? 0)));
+      // "No longer current" sinks the same way whichever way it happened: superseded (we were wrong) or
+      // invalidated (the world changed). In as_of mode nothing sinks — everything left WAS true at T.
+      const outdated = (d: any) => !!d.superseded_by || (d.invalid_at != null && Date.parse(d.invalid_at) <= now);
       const scored = cands.map((c) => ({
         ...c,
         score: plain
@@ -631,7 +671,7 @@ const server = Bun.serve({
               timesUsed: Number(c.doc.times_used ?? 0),
               maxUsed,
               daysSinceAccess: daysBetween(c.doc.last_accessed_at ?? c.doc.created_at, now),
-              superseded: !!c.doc.superseded_by,
+              superseded: asOf !== null ? false : outdated(c.doc),
             }),
       }));
 
@@ -644,10 +684,12 @@ const server = Bun.serve({
         type: "learning",
         source: r.doc.source ?? "fts",
         superseded_by: r.doc.superseded_by ?? undefined,
+        invalid_at: r.doc.invalid_at ?? undefined,
+        valid_at: r.doc.valid_at ?? undefined,
         trust: Number(r.doc.trust ?? 0.5),
         score: r.score,
       }));
-      return Response.json({ results, total: results.length, query: q, mode, vectors: vectorsOn, embedder });
+      return Response.json({ results, total: results.length, query: q, mode, vectors: vectorsOn, embedder, as_of: asOf !== null ? new Date(asOf).toISOString() : undefined });
     }
 
     return new Response("not found", { status: 404 });

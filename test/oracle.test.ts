@@ -37,6 +37,35 @@ describe("Oracle read-after-write (needs sidecar at :47778)", () => {
     expect(g2.edges.length).toBe(g1.edges.length);
   }, 60_000);
 
+  it("temporal retrieval (U6): invalidated facts sink NOW but as_of returns the truth-at-T", async () => {
+    if (!(await oracleReachable())) {
+      console.warn("Oracle not reachable — skipping temporal test.");
+      return;
+    }
+    const oracle = new OracleAdapter();
+    const project = "tt-" + Math.random().toString(36).slice(2, 8);
+    // The world: gateway timeout was 30s from Jan, changed to 60s on Jun 1st.
+    const T_OLD = "2026-01-01T00:00:00Z", T_CHANGE = "2026-06-01T00:00:00Z";
+    const a = await oracle.learn("The gateway request timeout is 30 seconds.", { project, validAt: T_OLD });
+    const b = await oracle.learn("The gateway request timeout is 60 seconds.", { project, validAt: T_CHANGE });
+    await oracle.invalidate!(a.id, { newId: b.id, reason: "config changed June 1st", invalidAt: T_CHANGE });
+
+    // NOW: the current fact must outrank the expired one (semantic similarity is identical — time decides).
+    const nowHits = await oracle.search("gateway request timeout", { project, limit: 2 });
+    expect(nowHits[0].id).toBe(b.id);
+
+    // Truth at a date BEFORE the change: only the old fact was true (validity of b starts at its creation,
+    // which is after T; a's interval covers it).
+    const before = await oracle.search("gateway request timeout", { project, limit: 5, asOf: "2026-03-01T00:00:00Z" });
+    expect(before.map((h) => h.id)).toContain(a.id);
+    expect(before.map((h) => h.id)).not.toContain(b.id);
+
+    // Truth AFTER the change: the old fact's interval has ended.
+    const after = await oracle.search("gateway request timeout", { project, limit: 5, asOf: "2026-07-01T00:00:00Z" });
+    expect(after.map((h) => h.id)).toContain(b.id);
+    expect(after.map((h) => h.id)).not.toContain(a.id);
+  }, 60_000);
+
   it("timeline records events and replays them in seq order", async () => {
     if (!(await oracleReachable())) {
       console.warn("Oracle not reachable at :47778 — skipping live timeline test.");

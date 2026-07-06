@@ -18,7 +18,14 @@ source; this doc is the decision layer: what we have, what the field has, what t
 > - anti-poisoning guards (critic rejects infra errors; rejected results never captured; dead runs write no
 >   retro) added after a real dead run stored "Credit balance is too low" as a finding — the field's gap #1
 >   (MINJA) reproduced by an outage, no attacker needed.
-> U5–U7 remain, deliberately deferred until real usage data accumulates (§6 sequence).
+> **U6 shipped (2026-07-07):** bi-temporal columns (`valid_at`/`invalid_at` + provenance), `POST
+> /api/invalidate` (world-changed, distinct from supersede = we-were-wrong), and `search?as_of=T` with
+> VALID-time semantics (truth-at-T; superseded docs never qualify; belief-time deliberately deferred).
+> Ranking sinks invalidated docs exactly like superseded ones — in NOW mode only; in as_of mode nothing
+> sinks, because everything returned WAS true at T. Integration-tested (30s→60s timeout scenario: now,
+> before-the-change, after-the-change) with both benches unregressed.
+> U5 + U7 remain, deliberately deferred until real usage data accumulates (§6 sequence) — the U5
+> contradiction pass is the intended automatic writer of `invalid_at`.
 
 ---
 
