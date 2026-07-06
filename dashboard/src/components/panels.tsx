@@ -192,8 +192,8 @@ export function SearchPanel({ project }: { project: string }) {
       <CardHeader className="pb-3"><CardTitle>Search <span className="text-xs font-normal text-muted-foreground">semantic recall — what a worker sees</span></CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <form onSubmit={(e) => { e.preventDefault(); run() }} className="flex gap-2">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="how do we authenticate users?" />
-          <Button type="submit" disabled={busy}>{busy ? "…" : "search"}</Button>
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="how do we authenticate users?" className="max-sm:h-10" />
+          <Button type="submit" disabled={busy} className="max-sm:h-10">{busy ? "…" : "search"}</Button>
         </form>
         {error && <p className="text-sm text-destructive">can't reach oracle-lite ({error}).</p>}
         <ul className="space-y-2">

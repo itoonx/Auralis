@@ -91,7 +91,7 @@ export default function App() {
             onValueChange={(v: string | null) => { setProject(v ?? ""); setRunSel("") }}
             items={projects.map((p) => ({ value: p.project, label: `${p.project} · ${p.docs} docs${p.events ? ` · ${p.events} ev` : ""}` }))}
           >
-            <SelectTrigger className="order-last w-full sm:order-none sm:w-64" title="project (only those with data are listed)">
+            <SelectTrigger className="order-last w-full max-sm:h-10 sm:order-none sm:w-64" title="project (only those with data are listed)">
               <SelectValue placeholder={projects.length ? "select project" : "no projects with data"} />
             </SelectTrigger>
             <SelectContent>
@@ -102,11 +102,12 @@ export default function App() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => setLive((v) => !v)}>
+          {/* max-sm:h-10 = comfortable touch targets on phones without changing the desktop density. */}
+          <Button variant="outline" size="sm" className="max-sm:h-10" onClick={() => setLive((v) => !v)}>
             {live ? <Pause className="size-4" /> : <Play className="size-4" />}
             {live ? "live" : "paused"}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setTick((t) => t + 1)} title="refresh">
+          <Button variant="ghost" size="icon" className="max-sm:size-10" onClick={() => setTick((t) => t + 1)} title="refresh">
             <RefreshCw className="size-4" />
           </Button>
         </div>
@@ -129,8 +130,9 @@ export default function App() {
         </div>
 
         <Tabs defaultValue="activity" className="space-y-4">
-          {/* Six triggers don't fit a phone; scroll the bar instead of wrapping it (single-row nav). */}
-          <TabsList className="max-w-full justify-start overflow-x-auto">
+          {/* Six triggers don't fit a phone; scroll the bar instead of wrapping it (single-row nav).
+              The scrollbar is hidden — the clipped last trigger is the affordance that there's more. */}
+          <TabsList className="max-w-full justify-start overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="timing">Timing</TabsTrigger>
             <TabsTrigger value="runs">Runs</TabsTrigger>
