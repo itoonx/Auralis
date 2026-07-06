@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { OracleAdapter } from "./memory";
 import { ensureOracle, resolveTasks, runFleet, stepSink } from "./fleet";
 import { buildWithRework } from "./build";
+import { recallRetro, writeRetro } from "./retro";
 
 // Bridge fleet coordination events to MCP progress notifications: keeps a long tool call alive (clients that
 // set resetTimeoutOnProgress won't time out) and shows the timeline live. No-op if the client sent no token.
@@ -62,11 +63,17 @@ server.tool(
     const projectDir = resolve(dir ?? process.cwd());
     const { onProgress, stop: stopHb } = startProgress(extra);
     const stop = await ensureOracle();
+    const proj = project ?? "default";
+    const adapter = new OracleAdapter();
     try {
-      const nodes = await resolveTasks(projectDir, goal, 6, false, stepSink("planner", projectDir, onProgress));
-      const { outcome } = await runFleet("mcp", new OracleAdapter(), nodes, {
-        projectDir, project: project ?? "default", maxTurns: 10, concurrency: 3, maxRetries: 1, workerPull: true, onProgress,
+      // Self-improving loop: recall prior lessons for this goal, feed them to the planner, record a new retro.
+      const prior = await recallRetro(adapter, proj, goal);
+      const goalForPlan = prior ? `${goal}\n\n[MEMORY — measured from a prior run of a similar goal. If it names a failed check, that check is the real contract; satisfy it. Learn from it.]\n${prior}` : goal;
+      const nodes = await resolveTasks(projectDir, goalForPlan, 6, false, stepSink("planner", projectDir, onProgress));
+      const { outcome } = await runFleet("mcp", adapter, nodes, {
+        projectDir, project: proj, maxTurns: 10, concurrency: 3, maxRetries: 1, workerPull: true, onProgress,
       });
+      await writeRetro(adapter, proj, { goal, mode: "analyze", reuses: outcome.reuses, repairs: outcome.repairs });
       const text = outcome.provenance.map((p) => `■ ${p.task}\n${p.summary}`).join("\n\n") || "(no findings)";
       return { content: [{ type: "text", text }] };
     } finally {
@@ -91,16 +98,21 @@ server.tool(
     if (!existsSync(pkg)) writeFileSync(pkg, JSON.stringify({ name: "build", private: true, type: "commonjs" }, null, 2) + "\n");
     const { onProgress, stop: stopHb } = startProgress(extra);
     const stop = await ensureOracle();
+    const adapter = new OracleAdapter();
     try {
-      const nodes = await resolveTasks(projectDir, goal, 6, true, stepSink("planner", projectDir, onProgress)); // build-aware planner
+      // Self-improving loop: recall prior build lessons for this goal, feed them to the planner.
+      const prior = await recallRetro(adapter, "mcp-build", goal);
+      const goalForPlan = prior ? `${goal}\n\n[MEMORY — measured from a prior build of a similar goal, not optional. If it names a FAILED acceptance check, that check is the real contract: satisfy it up front even if the goal above is silent or seems to say otherwise. Do NOT repeat the miss.]\n${prior}` : goal;
+      const nodes = await resolveTasks(projectDir, goalForPlan, 6, true, stepSink("planner", projectDir, onProgress)); // build-aware planner
       // Same closed loop as the CLI: on acceptance FAIL, rework the fleet (bounded). Progress keeps the call alive.
-      const { shared, acc, attempts } = await buildWithRework(
-        new OracleAdapter(),
+      const { shared, acc, attempts, firstFail } = await buildWithRework(
+        adapter,
         nodes,
         { projectDir, project: "mcp-build", maxTurns: 15, concurrency: 3, maxRetries: 1, workerPull: true, build: true, onProgress },
         { accept, retries: 1, projectDir },
       );
       const written = [...new Set(shared.outcome.perWorker.flatMap((w) => w.explored).filter((e) => e.tool === "Write" || e.tool === "Edit").map((e) => e.target))];
+      await writeRetro(adapter, "mcp-build", { goal, mode: "build", pass: acc ? acc.pass : written.length >= 1, reworks: attempts, firstFail, filesWritten: written.length, reuses: shared.outcome.reuses, repairs: shared.outcome.repairs });
       const verdict = acc ? `\n\nacceptance (${accept}): ${acc.pass ? "✅ PASS" : `❌ FAIL after ${attempts} rework(s)\n${acc.failLines}`}` : "";
       const text = `built ${written.length} file(s) in ${projectDir}:\n${written.map((f) => `- ${f}`).join("\n")}${verdict}`;
       return { content: [{ type: "text", text }] };

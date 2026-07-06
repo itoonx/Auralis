@@ -11,6 +11,7 @@ export interface BuildOutcome {
   shared: Awaited<ReturnType<typeof runFleet>>;
   acc?: AcceptResult; // undefined when no spec was given (e.g. analyse, or build without accept)
   attempts: number; // reworks performed (0 = passed first try or no spec)
+  firstFail: string; // what acceptance attempt #1 was missing ("" if it passed first try) — the retro lesson
 }
 
 // runFleet once; if an acceptance spec is given and fails, rework the fleet with the failure as feedback,
@@ -23,6 +24,7 @@ export async function buildWithRework(
 ): Promise<BuildOutcome> {
   let shared = await log.time("arm.shared", undefined, () => runFleet("shared", adapter, nodes, cfg));
   let acc: AcceptResult | undefined = opts.accept ? runAcceptance(opts.projectDir, opts.accept) : undefined;
+  const firstFail = acc && !acc.pass ? acc.failLines : ""; // capture attempt #1's miss before rework overwrites acc
   let attempts = 0;
   for (; acc && !acc.pass && attempts < opts.retries; attempts++) {
     const line = `↻ acceptance FAILED — rework ${attempts + 1}/${opts.retries}:\n${acc.failLines}`;
@@ -33,5 +35,5 @@ export async function buildWithRework(
     shared = await log.time("arm.shared", `rework${attempts + 1}`, () => runFleet("shared", adapter, reworkNodes, cfg));
     acc = runAcceptance(opts.projectDir, opts.accept!);
   }
-  return { shared, acc, attempts };
+  return { shared, acc, attempts, firstFail };
 }

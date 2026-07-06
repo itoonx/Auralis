@@ -10,6 +10,7 @@ import { explainProvenance } from "./audit";
 import { buildLevels } from "./dag";
 import { fleetRedundantCount, reductionPct } from "./metrics";
 import { buildWithRework } from "./build";
+import { recallRetro, writeRetro, RETRO_PREFIX } from "./retro";
 import { log } from "./log";
 
 const PROJECT_DIR = resolve(process.env.AURALIS_PROJECT_DIR ?? process.cwd());
@@ -42,7 +43,12 @@ async function main() {
   const stop = await log.time("oracle.boot", undefined, () => ensureOracle());
   try {
     console.log("· resolving tasks…");
-    const nodes = await log.time("plan", undefined, () => resolveTasks(PROJECT_DIR, GOAL, PLAN_TURNS, BUILD, stepSink("planner", PROJECT_DIR)));
+    // Self-improving loop: recall what prior runs of a similar goal learned, and feed it to the planner so
+    // the society avoids repeating the same miss.
+    const priorRetro = await recallRetro(new OracleAdapter(), PROJECT, GOAL);
+    if (priorRetro) console.log(`· recalled ${priorRetro.split(RETRO_PREFIX).length - 1} prior retro(s) — the planner will learn from them`);
+    const goalForPlan = priorRetro ? `${GOAL}\n\n[MEMORY — measured from a prior run of a similar goal, not optional. If it names a FAILED acceptance check, that check is the real contract: satisfy it up front even if the goal above is silent or seems to say otherwise. Do NOT repeat the miss.]\n${priorRetro}` : GOAL;
+    const nodes = await log.time("plan", undefined, () => resolveTasks(PROJECT_DIR, goalForPlan, PLAN_TURNS, BUILD, stepSink("planner", PROJECT_DIR)));
     console.log(`${nodes.length} task(s), ${buildLevels(nodes).length} level(s): ${nodes.map((n) => n.id).join(", ")}`);
     const cfg = { projectDir: PROJECT_DIR, project: PROJECT, maxTurns: MAX_TURNS, concurrency: CONCURRENCY, maxRetries: RETRIES, workerPull: WORKER_PULL, build: BUILD, out: OUT };
 
@@ -67,7 +73,7 @@ async function main() {
     const oracle = new OracleAdapter();
     // Close the loop (shared with the MCP build tool): run the fleet, and in build mode with a spec, validate
     // and rework on FAIL up to AURALIS_BUILD_RETRIES. analyse / no spec = one run, no rework.
-    const { shared, acc } = await buildWithRework(oracle, nodes, cfg, { accept: BUILD ? ACCEPT : undefined, retries: REWORK, projectDir: PROJECT_DIR });
+    const { shared, acc, attempts, firstFail } = await buildWithRework(oracle, nodes, cfg, { accept: BUILD ? ACCEPT : undefined, retries: REWORK, projectDir: PROJECT_DIR });
     const explored = shared.outcome.perWorker.map((w) => w.explored);
     const sharedRead = fleetRedundantCount(explored, READ_ONLY);
     const sharedScan = fleetRedundantCount(explored, SCAN_ONLY);
@@ -99,6 +105,20 @@ async function main() {
           ? `\n❌ acceptance FAILED after ${REWORK} rework(s) — see ${OUT}`
           : `\n⚠️  not met this run — see ${OUT}`,
     );
+    // Close the self-improving loop: record this run's retro from its REAL signals, so the next run of a
+    // similar goal recalls it (above) and does better.
+    const retroText = await writeRetro(oracle, PROJECT, {
+      goal: GOAL,
+      mode: BUILD ? "build" : "analyze",
+      pass: BUILD ? (acc ? acc.pass : written.length >= 1) : undefined,
+      reworks: attempts,
+      firstFail,
+      filesWritten: written.length,
+      reuses: shared.outcome.reuses,
+      repairs: shared.outcome.repairs,
+      readRedundant: sharedRead,
+    });
+    console.log(`\n· retro recorded — oracle will recall this next time:\n${retroText.split("\n").map((l) => "    " + l).join("\n")}`);
     console.log("\n" + log.summary());
     process.exitCode = pass ? 0 : 1;
   } finally {
