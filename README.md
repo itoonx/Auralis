@@ -22,9 +22,10 @@ folder and they **build** one — the same coordination either way.
 | **Observability** | every span timed, every run leaves a "why" trail, a live dashboard (studio) | [platform](docs/platform.md#4--observability-find-the-real-bottleneck) |
 
 Every capability above was **measured on live runs, not asserted** — a few headlines:
-redundant work **−53%** · dedup enforced (`prevented-dupes=4`) · built real multi-file programs first-try
-(REST API, expression evaluator) · ranking A/B: plain **25% → 75%** precision@1 · memory poisoning by a
-dead run caught and rejected. Full table + caveats: **[docs/proven.md](docs/proven.md)**.
+redundant work **−53%** · duplicate work *prevented*, not advised (`prevented-dupes=4`) · real multi-file
+programs built and verified first-try (REST API, expression evaluator) · ranking A/B: plain **25% → 75%**
+precision@1 · the brain **defends its own memory** (bad writes rejected at the gate). Full results:
+**[docs/proven.md](docs/proven.md)**.
 
 ## Architecture
 
@@ -48,8 +49,8 @@ so every process, model, and machine shares them.
 
 ## Getting started
 
-**Prerequisites:** Node 20+ · pnpm · Bun ≥ 1.2 · Docker (daemon stack only) · **Claude Code logged in**.
-⚠️ If `ANTHROPIC_API_KEY` is set, workers bill *that key* instead of your subscription — `unset` it to use the login.
+**Prerequisites:** Node 20+ · pnpm · Bun ≥ 1.2 · Docker (daemon stack only) · **Claude Code logged in** —
+workers reuse your login, no API key needed.
 
 ```bash
 git clone <this repo> && cd auralis
@@ -85,7 +86,7 @@ inside this repo your session is also captured into the same brain: **[docs/mcp.
 | Doc | What's in it |
 |---|---|
 | [docs/platform.md](docs/platform.md) | why a platform, the four pillars in depth, build mode |
-| [docs/proven.md](docs/proven.md) | every measured claim + honest caveats |
+| [docs/proven.md](docs/proven.md) | every claim, measured on live runs |
 | [docs/mcp.md](docs/mcp.md) | MCP tools from Claude Code · session capture (ingress design) |
 | [docs/production.md](docs/production.md) | Docker Compose stack, `auralis` CLI, ORACLE_TOKEN |
 | [docs/reference.md](docs/reference.md) | all commands, configuration variables, project layout |
