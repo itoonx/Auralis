@@ -27,6 +27,7 @@ ${cmd("pnpm dev", "analyse a repo (baseline vs shared brain) + a “why” trail
 ${cmd("pnpm persist", "prove cross-session recall across separate processes")}
 ${cmd("pnpm bench", "run the experiment N times, report mean ± spread")}
 ${cmd("pnpm bench-graph", "measure how much recall the graph adds over flat search")}
+${cmd("pnpm bench-rank", "A/B ranking bench — full ranker vs plain relevance on a decoy corpus")}
  ${dim("— the brain —")}
 ${cmd('pnpm recall "<query>"', "what recall hands a worker: flat findings + graph neighborhood")}
 ${cmd("pnpm build-graph", "build the knowledge graph from findings (entity/relationship edges)")}
@@ -50,6 +51,7 @@ ${setting("AURALIS_SEMANTIC=1", "real sentence-embedding recall (starts the embe
 ${setting("AURALIS_PARALLEL=3", "run each DAG level concurrently (faster; less sharing)")}
 ${setting("AURALIS_WORKER_PULL", "workers read/write the brain live, mid-task (real-time sharing) — ON by default; =0 to opt out")}
 ${setting("AURALIS_BASELINE=1", "re-measure mode — also run the no-brain A/B baseline arm (~2x slower; OFF by default)")}
+${setting("AURALIS_QUIET=1", "silence the live step narration on stderr (MCP progress still flows)")}
 ${setting("AURALIS_LOG_TIMING=1", "stream each timing span to stderr; the TIMING summary prints either way")}
 ${setting("AURALIS_TIMELINE=0", "opt out of the activity timeline (default on when a brain is present)")}
 ${setting("AURALIS_BUILD_GRAPH=1", "build the graph on ingest during pnpm dev")}

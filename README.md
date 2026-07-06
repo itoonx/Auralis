@@ -99,6 +99,21 @@ tool), so the next agent that touches that area **searches and finds it** right 
 something. It keeps the road not taken (rejected alternatives, and why), and — because the brain is
 append-only — a reversed decision is never deleted, only *superseded* ("reversed because …").
 
+**Memory has a lifecycle, not just storage (Ranking v2).** Retrieval fuses the keyword and vector lists
+with **RRF** (rank-only, so incompatible score scales never mix), then bounded boosts nudge the order —
+never gate it: `final = RRF × (1 + 0.2·recency + 0.1·usage + 0.05·trust) × (superseded ? 0.3 : 1)`.
+*Trust* is a prior by source (a ⟲ retro derived from a measured acceptance run is born 0.85; an ordinary
+worker finding 0.5 — defaults low, credibility is earned). *Usage* counts only **citations**: workers call
+a `cite` tool when a recalled finding materially helped, never raw retrievals — so ranking can't
+self-reinforce its own winners. And the brain **forgets without deleting**: strength
+(`trust × (1+log(1+uses)) × 2^(−days/half-life)`) decays unless reinforced by use; below the floor a doc is
+*archived* — hidden from default search, still reachable with `include_archived=1`. Decisions, hard-lesson
+retros, and human-stated facts are **pinned forever**. After each run oracle also writes itself a
+**retrospective** from the run's measured signals and recalls it before the next similar goal.
+All of it is measured, not asserted: `pnpm bench-rank` is an A/B bench (full ranker vs plain relevance)
+whose corpus deliberately fools pure keyword search — and whose guardrail fails any ranker that lets
+trust override relevance.
+
 > **Guarantee:** the brain has **no delete route at all.** Everything is append-only and auditable;
 > "removal" is always supersession. `pnpm values` demonstrates it.
 
@@ -218,6 +233,11 @@ numbers are real but **directional** — each is from a single non-deterministic
 | **Build mode is reliable** | built a working rock-paper-scissors game **3/3** runs (acceptance PASS each; baseline analyse-mode wrote **0** files) |
 | **Claim prevents clobbers** | two workers forced onto one file — claim ON: **prevented-clobbers=1**, collisions=0; claim OFF: **collisions=1** |
 | **Build mode generalises** | pointed at a *different* project it built a working TODO CLI (add/list/done/rm + persistence) — acceptance PASS, no code change |
+| **Real multi-file projects** | built a 3-file REST API (store/router/server, interfaces agreed via the brain, reuses=2) and an expression-evaluator CLI (lexer→parser→cli) — both first-try PASS, verified independently incl. a server-restart persistence check |
+| **Closed loop recovers from real failure** | goal forced attempt #1 to FAIL acceptance ("in-memory only" vs a persistence check) → rework read the fail lines → attempt #2 PASS |
+| **Ranking boosts earn their place** | A/B bench: plain relevance **25%** → full ranker **75%** precision@1; guardrail held (trust may not override relevance). The bench caught 2 real bugs before shipping |
+| **Workers credit what helped** | real analyze run: **cites=4 unprompted** — the synthesis worker cited the 3 level-1 findings it built on; cited docs measurably rank up |
+| **Memory is poison-guarded** | a dead run (API credit $0) tried to store "Credit balance is too low" as a finding claiming files were covered — critic rejected it, nothing was captured, no retro written |
 
 ## Architecture
 
@@ -298,7 +318,7 @@ several minutes and its workers bill your account; oracle-lite uses port 47778.
 | `pnpm analyze "<goal>"` | **the short path** — run the society once, then answer from graph-aware recall |
 | `pnpm dev` | run the coordinated fleet over a repo (baseline vs shared brain) + a "why" trail |
 | `AURALIS_MODE=build pnpm dev` | **build mode** — the fleet writes files into a workspace instead of analysing |
-| `pnpm accept` | the independent acceptance harness — run the built program and PASS/FAIL it (`AURALIS_ACCEPT=rps\|todo`) |
+| `pnpm accept` | the independent acceptance harness — run the built program and PASS/FAIL it (`AURALIS_ACCEPT=rps\|todo\|restapi\|calc`) |
 
 **Run the fleet**
 | Command | What it does |
@@ -306,6 +326,7 @@ several minutes and its workers bill your account; oracle-lite uses port 47778.
 | `pnpm persist` | prove cross-session recall across separate processes |
 | `pnpm bench` | run the experiment N times, report mean ± spread |
 | `pnpm bench-graph` | measure how much recall the graph adds over flat search |
+| `pnpm bench-rank` | A/B ranking bench — full ranker vs plain relevance on a decoy corpus (precision@1 / MRR, with a trust-vs-relevance guardrail) |
 
 **The brain**
 | Command | What it does |
@@ -343,6 +364,7 @@ Full list + defaults in `.env.example`. The ones that matter most:
 | `AURALIS_WORKER_PULL` | workers read/write the brain live, mid-task (real-time sharing + claim dedup) — **on by default**; `=0` to opt out |
 | `AURALIS_PARALLEL=3` | run each DAG level concurrently — faster, but same-level tasks can't reuse each other |
 | `AURALIS_BASELINE=1` | **re-measure mode** — also run the no-brain A/B baseline arm (~2× slower; **off by default** — the brain's value is already measured) |
+| `AURALIS_QUIET=1` | silence the live step-by-step narration on stderr (MCP progress still flows) |
 
 **Build mode**
 | Variable | Effect |
@@ -389,6 +411,12 @@ Full list + defaults in `.env.example`. The ones that matter most:
 
 Where the platform is headed. Ordered by leverage (timing tells us which knob actually moves the needle).
 
+- **Memory-OS upgrades** — U1–U4 are **shipped and measured** (RRF+trust ranking, citation feedback,
+  forgetting-as-ranking — see `docs/research-memory-os.md`). Remaining: **U5** nightly consolidation
+  ("sleep job": dedup ≥0.92, same-entity contradiction pass — *dedup, not summarize*), **U6** bi-temporal
+  (`superseded` = we were wrong vs `invalidated` = the world changed), **U7** safety snapshot
+  (`VACUUM INTO`) before destructive ops. Deliberately waiting for real usage data to accumulate first —
+  the sleep job needs citation counters and trust to pick supersede winners.
 - **Model / turn routing** — *highest leverage.* Timing proves the LLM call is 99.9% of wall-clock, so the
   real cost lever is *which* model runs *which* task: a small/cheap model for the Planner and easy subtasks,
   Opus reserved for hard analysis, plus a per-task turn budget. This is the one change measurement says is

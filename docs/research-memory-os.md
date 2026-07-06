@@ -4,6 +4,22 @@ Date: 2026-07-07 · Inputs: two parallel research sweeps (system landscape 2025�
 deep-dive with formulas) + a code-level inventory of oracle-lite. Full agent reports are the
 source; this doc is the decision layer: what we have, what the field has, what to build, what to skip.
 
+> **Status (2026-07-07, post-implementation): U1–U4 shipped and measured.**
+> U1+U2 `8274ea8` · U3 `296aeaf` · U4 `73db755` · A/B ranking bench `f3fd542` (plain 25% → full 75%
+> precision@1, guardrail held) · live validation: real workers cited 4 findings unprompted.
+> **Deviations from the plan, forced by measurement:**
+> - trust boost weight is **0.05**, not 0.2 — the bench's guardrail proved 0.2 let trust override a genuine
+>   relevance win (RRF is rank-only: it can't tell a near-tie from a real gap, so a strong multiplier flips
+>   both). Trust's real teeth are in forgetting (`strength()`), exactly as §U2 hinted.
+> - a **stopword filter** was added to FTS query sanitization — the bench exposed that query stopwords let
+>   every doc match and boosts amplified noise.
+> - retros are recorded every run but **pinned only on a hard lesson** (measured failure fixed, or
+>   self-repairs) — no-lesson "repeat structure" retros fade via U4 instead of accumulating (utility audit).
+> - anti-poisoning guards (critic rejects infra errors; rejected results never captured; dead runs write no
+>   retro) added after a real dead run stored "Credit balance is too low" as a finding — the field's gap #1
+>   (MINJA) reproduced by an outage, no attacker needed.
+> U5–U7 remain, deliberately deferred until real usage data accumulates (§6 sequence).
+
 ---
 
 ## 1. Where oracle-lite stands today (from code, not memory)
