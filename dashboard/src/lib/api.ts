@@ -38,6 +38,16 @@ async function json<T>(url: string): Promise<T> {
 export const getStats = (project?: string) =>
   json<Stats>(project ? `/api/stats?project=${encodeURIComponent(project)}` : "/api/stats");
 
+export interface ProjectInfo {
+  project: string;
+  docs: number;
+  events: number;
+  lastTs: string;
+}
+// Projects that actually have data — the picker uses this so the default view isn't the (usually empty)
+// "default" project. Ordered most-recent-first by the server.
+export const getProjects = () => json<{ projects: ProjectInfo[] }>("/api/projects");
+
 export const getTimeline = (project: string, run?: string) => {
   const u = new URLSearchParams({ project, limit: "500" });
   if (run) u.set("run", run);

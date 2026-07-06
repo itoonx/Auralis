@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DecisionsPanel, GraphPanel, RunsPanel, SearchPanel, TimingPanel } from "@/components/panels"
-import { getDocs, getStats, getTimeline, scorecard, type Finding, type Stats, type TimelineEvent } from "@/lib/api"
+import { getDocs, getProjects, getStats, getTimeline, scorecard, type Finding, type ProjectInfo, type Stats, type TimelineEvent } from "@/lib/api"
 
 // Glyph + accent per event kind — mirrors the CLI reader so the timeline reads the same in both places.
 const KIND: Record<string, { glyph: string; cls: string }> = {
@@ -36,7 +36,8 @@ function Stat({ icon, label, value, sub }: { icon: ReactNode; label: string; val
 }
 
 export default function App() {
-  const [project, setProject] = useState("default")
+  const [project, setProject] = useState("")
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [tick, setTick] = useState(0)
   const [runSel, setRunSel] = useState("") // "" = newest run for the project
   const [events, setEvents] = useState<TimelineEvent[]>([])
@@ -49,7 +50,17 @@ export default function App() {
 
   useEffect(() => { document.documentElement.classList.add("dark") }, [])
 
+  // Discover which projects actually have data and default to the most-active one, so the dashboard isn't
+  // blank on load (the old hardcoded "default" project is almost always empty). Refreshes with the live tick.
+  useEffect(() => {
+    getProjects().then(({ projects }) => {
+      setProjects(projects)
+      setProject((p) => p || projects[0]?.project || "default")
+    }).catch(() => {})
+  }, [tick])
+
   const load = useCallback(async () => {
+    if (!project) return // wait until the project picker has resolved (avoids a blank project= query)
     try {
       const [tl, st, dc] = await Promise.all([getTimeline(project, runSel || undefined), getStats(project), getDocs(project)])
       setEvents(tl.events)
@@ -81,13 +92,17 @@ export default function App() {
             <span className="text-muted-foreground font-normal text-sm">· brain</span>
           </div>
           <div className="flex-1" />
-          <input
+          <select
             value={project}
             onChange={(e) => { setProject(e.target.value); setRunSel("") }}
-            spellCheck={false}
-            className="h-8 w-44 rounded-md border bg-transparent px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
-            placeholder="project"
-          />
+            className="h-8 w-56 rounded-md border bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+            title="project (only those with data are listed)"
+          >
+            {projects.length === 0 && <option value="">no projects with data</option>}
+            {projects.map((p) => (
+              <option key={p.project} value={p.project}>{p.project} · {p.docs} docs{p.events ? ` · ${p.events} ev` : ""}</option>
+            ))}
+          </select>
           <Button variant="outline" size="sm" onClick={() => setLive((v) => !v)}>
             {live ? <Pause className="size-4" /> : <Play className="size-4" />}
             {live ? "live" : "paused"}

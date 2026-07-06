@@ -489,6 +489,26 @@ const server = Bun.serve({
       return Response.json({ docs: rows.map((r) => ({ id: r.id, content: r.content, tier: r.tier ?? "raw" })) });
     }
 
+    // Projects that actually have data — so the dashboard can offer a picker instead of a blind text box
+    // defaulting to "default" (which is usually empty). Ordered by most-recent activity, then doc count.
+    if (req.method === "GET" && url.pathname === "/api/projects") {
+      const acc = new Map<string, { project: string; docs: number; events: number; lastTs: string }>();
+      const get = (p: string) => acc.get(p) ?? acc.set(p, { project: p, docs: 0, events: 0, lastTs: "" }).get(p)!;
+      for (const r of db.query("SELECT project, COUNT(*) c, MAX(created_at) last FROM docs WHERE project IS NOT NULL AND superseded_by IS NULL GROUP BY project").all() as any[]) {
+        const e = get(String(r.project)); e.docs = Number(r.c); e.lastTs = String(r.last ?? "");
+      }
+      for (const r of db.query("SELECT project, COUNT(*) c, MAX(ts) last FROM events WHERE project IS NOT NULL GROUP BY project").all() as any[]) {
+        const e = get(String(r.project)); e.events = Number(r.c); if (String(r.last ?? "") > e.lastTs) e.lastTs = String(r.last);
+      }
+      // Substance first: projects with real findings (docs) rank above doc-less timeline-only probes (e.g.
+      // integration-test runs), then most-recent within each group — so the picker defaults to real data.
+      const projects = [...acc.values()].sort((a, b) => {
+        const sub = (b.docs > 0 ? 1 : 0) - (a.docs > 0 ? 1 : 0);
+        return sub !== 0 ? sub : b.lastTs > a.lastTs ? 1 : b.lastTs < a.lastTs ? -1 : b.docs - a.docs;
+      });
+      return Response.json({ projects });
+    }
+
     // 1-hop neighborhood of an entity: every edge touching its normalized key + connected entities.
     if (req.method === "GET" && url.pathname === "/api/graph") {
       const entity = url.searchParams.get("entity") ?? "";
