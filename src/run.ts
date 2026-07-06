@@ -106,8 +106,10 @@ async function main() {
           : `\n⚠️  not met this run — see ${OUT}`,
     );
     // Close the self-improving loop: record this run's retro from its REAL signals, so the next run of a
-    // similar goal recalls it (above) and does better.
-    const retroText = await writeRetro(oracle, PROJECT, {
+    // similar goal recalls it (above) and does better. A run where no worker explored anything (API outage,
+    // credit exhaustion) has NO lesson — recording "coordinated cleanly" from a dead run would pin a lie.
+    const anyWork = shared.outcome.perWorker.some((w) => w.explored.length > 0);
+    const retroText = !anyWork ? "" : await writeRetro(oracle, PROJECT, {
       goal: GOAL,
       mode: BUILD ? "build" : "analyze",
       pass: BUILD ? (acc ? acc.pass : written.length >= 1) : undefined,
@@ -118,7 +120,8 @@ async function main() {
       repairs: shared.outcome.repairs,
       readRedundant: sharedRead,
     });
-    console.log(`\n· retro recorded — oracle will recall this next time:\n${retroText.split("\n").map((l) => "    " + l).join("\n")}`);
+    if (retroText) console.log(`\n· retro recorded — oracle will recall this next time:\n${retroText.split("\n").map((l) => "    " + l).join("\n")}`);
+    else console.log("\n· retro skipped — no worker explored anything (dead run has no lesson)");
     console.log("\n" + log.summary());
     process.exitCode = pass ? 0 : 1;
   } finally {

@@ -37,6 +37,32 @@ describe("critic / self-repair", () => {
     expect(heuristicCritic.grade("q", "A full and complete answer to the question.").ok).toBe(true);
   });
 
+  it("rejects infrastructure errors masquerading as findings (the credit-exhaustion poisoning path)", () => {
+    expect(heuristicCritic.grade("q", "Credit balance is too low").ok).toBe(false);
+    expect(heuristicCritic.grade("q", "API error: rate limit exceeded, retry later").ok).toBe(false);
+    expect(heuristicCritic.grade("q", "Request failed: quota exceeded for this billing period").ok).toBe(false);
+    // a long real analysis that merely MENTIONS rate limiting is NOT an infra error
+    const real = "The middleware applies a rate limit of 100 req/min per key; exceeding it returns 429. " +
+      "This is enforced in middleware/rate.ts which reads limits from config, and the login endpoint wraps it. " +
+      "Overall the request path is: router -> rate middleware -> auth -> handler.";
+    expect(heuristicCritic.grade("q", real).ok).toBe(true);
+  });
+
+  it("a rejected result is NOT captured into the brain (no memory poisoning)", async () => {
+    class DeadRunner implements AgentRunner {
+      async run(): Promise<RunResult> {
+        return { result: "Credit balance is too low", explored: [] };
+      }
+    }
+    const learned: string[] = [];
+    const adapter = new NullMemoryAdapter();
+    (adapter as any).learn = async (p: string) => { learned.push(p); return { id: "x" }; };
+    const env = new AgenticEnvironment();
+    const out = await coordinate(one, makeWorkerFactory(env, new DeadRunner()), new MemoryLibrarian(adapter), { maxRetries: 0 });
+    expect(learned).toEqual([]); // nothing captured
+    expect(out.provenance[0].learnedId).toBe("");
+  });
+
   it("retries a rejected task and keeps the improved result", async () => {
     const env = new AgenticEnvironment();
     const out = await coordinate(one, makeWorkerFactory(env, new FlakyRunner()), new MemoryLibrarian(new NullMemoryAdapter()), { maxRetries: 1 });

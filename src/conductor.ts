@@ -33,12 +33,17 @@ export interface Critic {
   grade(question: string, result: string): { ok: boolean; reason: string };
 }
 
-// Default heuristic Critic: reject empty answers, early-stop stubs, and non-answers.
+// Default heuristic Critic: reject empty answers, early-stop stubs, non-answers, and infra errors.
+// The infra pattern matters: a real run with an exhausted API credit returned "Credit balance is too low"
+// as its "finding", which was then captured into the brain claiming its files were fully covered —
+// memory poisoning by outage, no attacker needed. The critic is the first gate against that.
+const INFRA_ERROR = /credit balance|rate.?limit|overloaded|billing|invalid.*api.?key|api error|quota exceeded/i;
 export const heuristicCritic: Critic = {
   grade(_question, result) {
     const r = result.trim();
     if (!r) return { ok: false, reason: "empty result" };
     if (r.startsWith("(worker stopped early")) return { ok: false, reason: "stopped before answering" };
+    if (r.length < 200 && INFRA_ERROR.test(r)) return { ok: false, reason: "infrastructure error, not an answer" };
     if (r.length < 20) return { ok: false, reason: "answer too short to be real" };
     return { ok: true, reason: "ok" };
   },
@@ -90,9 +95,16 @@ export async function coordinate(
     }
     const targets = [...new Set(res.explored.map((e) => e.target))];
     emit?.("finding", node.id, `${node.id}: ${oneLine(res.result)} (${targets.length} files)`, { nodeId: node.id, parentNode: node.dependsOn, refs: targets });
-    const captureEnd = log.start("brain.capture", node.id); // push: learn + (optional) graph-build
-    const learnedId = await librarian.capture(node.id, node.question, res);
-    captureEnd();
+    // Capture ONLY results the critic accepted. A rejected result (infra error, stub) written to the brain
+    // claims its files are "fully covered" — poisoning every future run's recall. Better no memory than a lie.
+    let learnedId = "";
+    if (verdict.ok) {
+      const captureEnd = log.start("brain.capture", node.id); // push: learn + (optional) graph-build
+      learnedId = await librarian.capture(node.id, node.question, res);
+      captureEnd();
+    } else {
+      emit?.("overlap", node.id, `${node.id} result rejected (${verdict.reason}) — NOT captured to the brain`, { nodeId: node.id });
+    }
     return { node, ctx, res, learnedId, attempts };
   };
 

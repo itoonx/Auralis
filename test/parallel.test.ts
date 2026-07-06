@@ -72,7 +72,9 @@ describe("parallel coordinate", () => {
       { id: "root", question: "analyze the core module", dependsOn: [] },
       { id: "child", question: "analyze how the core module is used", dependsOn: ["root"] },
     ];
-    const s = society(() => new StubRunner([]), new FakeAdapter());
+    // The stub must produce a critic-ACCEPTED result (rejected results are no longer captured to the
+    // brain — the poisoning guard), so give it a file to "explore" like a real worker would.
+    const s = society(() => new StubRunner(["src/core-module.ts"]), new FakeAdapter());
     const out = await coordinate(nodes, s.makeWorker, s.librarian, { concurrency: 3 });
     const child = out.provenance.find((p) => p.task === "child");
     expect(child?.recalled.length).toBeGreaterThanOrEqual(1);

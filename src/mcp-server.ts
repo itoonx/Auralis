@@ -73,7 +73,7 @@ server.tool(
       const { outcome } = await runFleet("mcp", adapter, nodes, {
         projectDir, project: proj, maxTurns: 10, concurrency: 3, maxRetries: 1, workerPull: true, onProgress,
       });
-      await writeRetro(adapter, proj, { goal, mode: "analyze", reuses: outcome.reuses, repairs: outcome.repairs });
+      if (outcome.perWorker.some((w) => w.explored.length > 0)) await writeRetro(adapter, proj, { goal, mode: "analyze", reuses: outcome.reuses, repairs: outcome.repairs }); // dead run → no lesson
       const text = outcome.provenance.map((p) => `■ ${p.task}\n${p.summary}`).join("\n\n") || "(no findings)";
       return { content: [{ type: "text", text }] };
     } finally {
@@ -112,7 +112,7 @@ server.tool(
         { accept, retries: 1, projectDir },
       );
       const written = [...new Set(shared.outcome.perWorker.flatMap((w) => w.explored).filter((e) => e.tool === "Write" || e.tool === "Edit").map((e) => e.target))];
-      await writeRetro(adapter, "mcp-build", { goal, mode: "build", pass: acc ? acc.pass : written.length >= 1, reworks: attempts, firstFail, filesWritten: written.length, reuses: shared.outcome.reuses, repairs: shared.outcome.repairs });
+      if (written.length > 0 || shared.outcome.perWorker.some((w) => w.explored.length > 0)) await writeRetro(adapter, "mcp-build", { goal, mode: "build", pass: acc ? acc.pass : written.length >= 1, reworks: attempts, firstFail, filesWritten: written.length, reuses: shared.outcome.reuses, repairs: shared.outcome.repairs }); // dead run → no lesson
       const verdict = acc ? `\n\nacceptance (${accept}): ${acc.pass ? "✅ PASS" : `❌ FAIL after ${attempts} rework(s)\n${acc.failLines}`}` : "";
       const text = `built ${written.length} file(s) in ${projectDir}:\n${written.map((f) => `- ${f}`).join("\n")}${verdict}`;
       return { content: [{ type: "text", text }] };
