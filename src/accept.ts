@@ -64,6 +64,21 @@ const waitUp=()=>new Promise((res,rej)=>{(function poll(){if(Date.now()>deadline
 }catch(e){end(1,String(e&&e.message||e));}})();
 `;
 
+// The calc "core" runs the built cli.js against an arithmetic battery — precedence, parentheses, and
+// division must all be correct. Testing through cli.js (the contract surface) keeps it robust to how the
+// workers name their internal exports; it only cares that `node cli.js "<expr>"` prints the right number.
+const CALC_DRIVER = `
+const {spawnSync}=require('child_process');const cli=process.argv[1];
+const cases=[['2+3*4',14],['(2+3)*4',20],['10/2-1',4],['2*(3+4)-5',9],['100/4/5',5],['7-2-1',4]];
+for(const [expr,want] of cases){
+  const r=spawnSync(process.execPath,[cli,expr],{encoding:'utf8',timeout:4000});
+  const m=((r.stdout||'')+'').match(/-?\\d+(?:\\.\\d+)?/);
+  const got=m?Number(m[0]):NaN;
+  if(!(Math.abs(got-want)<1e-9)){console.error(expr+' => got '+JSON.stringify((r.stdout||'').trim())+' want '+want);process.exit(1);}
+}
+console.log('CORE_OK');
+`;
+
 const SPECS: Record<string, Spec> = {
   rps: {
     main: "game.js",
@@ -85,6 +100,16 @@ const SPECS: Record<string, Spec> = {
         if (!crashed && /\b(win|lose|tie)\b/i.test(out)) return { ok: true };
       }
       return { ok: false, detail: "cli printed no win/lose/tie via stdin or argv" };
+    },
+  },
+  calc: {
+    main: "cli.js",
+    files: ["lexer.js", "parser.js", "cli.js"],
+    core: CALC_DRIVER, // arithmetic correctness through cli.js — precedence, parens, division
+    cli: (ws) => {
+      const r = runNode(ws, ["cli.js", "8+7"]);
+      const out = ((r.stdout ?? "") + "").trim();
+      return /(^|\D)15(\D|$)/.test(out) ? { ok: true } : { ok: false, detail: `cli "8+7" printed ${JSON.stringify(out)}, expected 15` };
     },
   },
   restapi: {
