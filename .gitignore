@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.sqlite*
 
-# local planning / tooling (references private monorepo) — not for the public repo
-.claude/
+# local planning / tooling (references private monorepo) — not for the public repo,
+# EXCEPT settings.json: the shared hook registration (session-capture) follows the repo,
+# per Claude Code's settings.json (team) vs settings.local.json (private) convention.
+.claude/*
+!.claude/settings.json
 .DS_Store
