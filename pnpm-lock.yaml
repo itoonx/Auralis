@@ -17,6 +17,9 @@ importers:
       '@lancedb/lancedb':
         specifier: ^0.31.0
         version: 0.31.0(apache-arrow@18.1.0)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
       '@mozaik-ai/core':
         specifier: 3.13.1
         version: 3.13.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)

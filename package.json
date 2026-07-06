@@ -20,7 +20,8 @@
     "bench-graph": "tsx src/run-bench-graph.ts",
     "build-graph": "tsx src/run-build-graph.ts",
     "timeline": "tsx src/run-timeline.ts",
-    "accept": "tsx src/accept.ts"
+    "accept": "tsx src/accept.ts",
+    "mcp": "tsx src/mcp-server.ts"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.199",
     "@huggingface/transformers": "^4.2.0",
     "@lancedb/lancedb": "^0.31.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozaik-ai/core": "3.13.1",
     "zod": "^4.4.3"
   },

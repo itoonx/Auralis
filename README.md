@@ -266,6 +266,25 @@ pnpm values                                        # see the append-only / super
 Everything project-specific — the target repo, the goal, the tasks — comes from environment variables, so
 auralis isn't tied to any one project. See [Configuration](#configuration) and `.env.example`.
 
+## Use it from Claude Code (MCP)
+
+auralis ships an **MCP server** so you can call the fleet from your normal Claude Code CLI. Add it to your
+`.mcp.json`:
+
+```json
+{ "mcpServers": { "auralis": { "command": "pnpm", "args": ["-C", "/path/to/auralis", "mcp"] } } }
+```
+
+Your session then gets two tools:
+
+- **`analyze`** `(goal, dir?, project?)` — a society analyses a codebase and answers, sharing one brain.
+- **`build`** `(goal, dir, accept?)` — a society builds a small program into `dir`, then verifies it.
+
+The tool call boots the brain and runs a real fleet, which drives its own Claude workers via the Agent SDK
+(reusing your login) — so it's Claude calling auralis calling Claude, and it works: the nesting (SDK auth,
+MCP stdio framing, re-entrancy) is proven on a live run. Caveats: a build call takes minutes and its workers
+bill your account; oracle-lite uses port 47778.
+
 ## Command reference
 
 `pnpm run help` prints this live. Everything runs via env vars + pnpm scripts (no unified CLI yet).

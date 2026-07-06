@@ -15,12 +15,15 @@ import type { DagNode } from "./dag";
 
 export async function ensureOracle(): Promise<() => void> {
   const stops: (() => void)[] = [];
+  // When auralis runs AS an MCP server, stdout is the JSON-RPC channel — sidecar logs must NOT touch it,
+  // so send their stdout+stderr to our stderr (fd 2). Normal runs inherit as before.
+  const sidecarStdio: any = process.env.AURALIS_MCP ? ["ignore", 2, 2] : "inherit";
 
   // Optional semantic embed-sidecar (Node). oracle-lite, spawned below, inherits ORACLE_EMBED_URL.
   if (process.env.AURALIS_SEMANTIC === "1" && !process.env.ORACLE_EMBED_URL) {
     const port = Number(process.env.EMBED_PORT ?? 47779);
     const url = `http://localhost:${port}`;
-    const embed = spawn("pnpm", ["exec", "tsx", "src/embed-sidecar.ts"], { env: { ...process.env, EMBED_PORT: String(port) }, stdio: "inherit" });
+    const embed = spawn("pnpm", ["exec", "tsx", "src/embed-sidecar.ts"], { env: { ...process.env, EMBED_PORT: String(port) }, stdio: sidecarStdio });
     stops.push(() => { try { embed.kill(); } catch { /* noop */ } });
     let up = false;
     for (let i = 0; i < 180; i++) { // first run downloads the model
@@ -32,7 +35,7 @@ export async function ensureOracle(): Promise<() => void> {
   }
 
   if (await oracleReachable()) return () => stops.forEach((s) => s());
-  const child = spawn("bun", ["run", "oracle-lite/server.ts"], { env: { ...process.env, ORACLE_RESET: "1" }, stdio: "inherit" });
+  const child = spawn("bun", ["run", "oracle-lite/server.ts"], { env: { ...process.env, ORACLE_RESET: "1" }, stdio: sidecarStdio });
   stops.push(() => { try { child.kill(); } catch { /* noop */ } });
   for (let i = 0; i < 60; i++) {
     if (await oracleReachable()) return () => stops.forEach((s) => s());
