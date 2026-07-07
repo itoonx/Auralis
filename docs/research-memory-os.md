@@ -312,3 +312,22 @@ Workflow / Permissions / Risk / Business-Criticality / Compliance (single-user Y
    writer nor reader, and graph edges already cover file-level where (M3-proven).
 3. Immutable/mutable table split — REJECTED at this scale (joins everywhere + risk to 93 proven tests to
    solve a problem SQLite already solves); reconsider only on real WAL contention.
+
+## 10. Competitive readiness — assessed 2026-07-07 (real metrics to follow production usage)
+
+**Capability arena — ready today, advantaged.** The field's own summary ("retrieval is solved, judgment
+is not") describes exactly the judgment stack we shipped complete: trust-by-source, citation-earned
+confidence, principled forgetting, bi-temporal + as_of, a sleep job that adjudicates contradictions, and
+enforced coordination (the moat nobody else has at all). Each major competitor lacks 3–4 of these; we lack none.
+
+**Evidence arena — methodologically ahead, still self-referential.** Our benches prove they can fail
+before we trust a pass — rare in a field whose flagship benchmark collapsed into vendor methodology wars.
+But they are ours, run by us: a competitive claim needs a neutral arena (→ prd-longmemeval.md).
+
+**Production-trust arena — not ready, no shortcut.** Real data is days old (dozens of docs); forgetting/
+sleep/the usage dial have never met real scale or real time. Embedder is trigram (decision deferred, §7).
+No distribution (ghcr/npm recorded for the next production round). The only path is mileage.
+
+**Bottom line:** the architecture competes today; accumulated trust is the one thing left, and it can only
+be earned by running the thing. Sequence: real usage → embedder decision (via the LongMemEval A/B) →
+distribution → a neutral-benchmark number.
