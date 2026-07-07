@@ -38,25 +38,10 @@ function toIso(d: string): string | undefined {
   return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
 }
 
-// A memory unit should be a unit of THOUGHT, not a whole turn: assistant turns here average ~1,800 chars
-// (max 4,000+), and the failing categories all died the same way — the evidence sat past the excerpt cut.
-// Chunk long turns at sentence boundaries so each memory is retrievable AND fits an excerpt whole.
-export function chunkTurn(text: string, max = 600): string[] {
-  if (text.length <= max) return [text];
-  const sentences = text.split(/(?<=[.!?\n])\s+/).filter(Boolean);
-  const chunks: string[] = [];
-  let cur = "";
-  for (const s of sentences) {
-    if (cur && cur.length + s.length + 1 > max) {
-      chunks.push(cur);
-      cur = s;
-    } else {
-      cur = cur ? `${cur} ${s}` : s;
-    }
-  }
-  if (cur) chunks.push(cur);
-  return chunks;
-}
+// A memory unit should be a unit of THOUGHT, not a whole turn — the same chunking policy the
+// session-capture ingress uses in production (single source of truth lives with the hook).
+// @ts-expect-error — plain .mjs module, no types
+import { chunkTurn } from "../hooks/session-capture.mjs";
 
 async function ask(prompt: string): Promise<string> {
   let out = "";

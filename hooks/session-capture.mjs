@@ -37,7 +37,7 @@ export function route(payload) {
     actions.push({ type: "event", project, kind: "prompt", actor: "human", human: `🗣 ${clip(prompt, 200)}` });
     actions.push({ type: "recall", project, query: prompt }); // BEFORE learn — don't echo this prompt back at itself
     if (prompt.length >= 80) {
-      actions.push({ type: "learn", project, source: "human:prompt", pinned: false, pattern: `User instruction (session): ${clip(prompt, 1200)}` });
+      actions.push(...learnChunks(project, "human:prompt", "User instruction (session): ", prompt));
     }
     return actions;
   }
@@ -59,7 +59,7 @@ export function route(payload) {
     if (text.length >= 40) actions.push({ type: "event", project, kind: "answer", actor: "claude-code", human: `✦ ${clip(text, 200)}` });
     // Into the brain only when substantive; born agent-tier (0.5) — credibility is earned via cite.
     if (text.length >= 120) {
-      actions.push({ type: "learn", project, source: "session:assistant", pinned: false, pattern: `Assistant conclusion (session): ${clip(text, 1500)}` });
+      actions.push(...learnChunks(project, "session:assistant", "Assistant conclusion (session): ", text));
     }
     return actions;
   }
@@ -68,6 +68,38 @@ export function route(payload) {
 }
 
 const clip = (s, n) => s.replace(/\s+/g, " ").trim().slice(0, n);
+
+// A memory unit is a unit of thought, not a turn (LongMemEval diagnosis, 58%→76%): clip() at write time
+// threw away everything past the cut — unrecoverable in an append-only store. Long text splits at
+// sentence boundaries instead; nothing is lost, and each chunk fits whole in a recall excerpt.
+export function chunkTurn(text, max = 600) {
+  if (text.length <= max) return [text];
+  const sentences = text.split(/(?<=[.!?\n])\s+/).filter(Boolean);
+  const chunks = [];
+  let cur = "";
+  for (const s of sentences) {
+    if (cur && cur.length + s.length + 1 > max) {
+      chunks.push(cur);
+      cur = s;
+    } else {
+      cur = cur ? `${cur} ${s}` : s;
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
+// Learn actions for one lane: chunk, then give continuation chunks a [re: …] anchor — a mid-list chunk
+// ("7. Transcriptionist…") loses the topic words that make it findable without one.
+function learnChunks(project, source, prefix, text) {
+  const t = text.trim().slice(0, 6000); // ponytail: 6k ceiling, raise if a real conclusion outgrows it
+  const chunks = chunkTurn(t).map((c) => clip(c, 600));
+  const anchor = chunks.length > 1 ? chunks[0].slice(0, 80).replace(/\s+\S*$/, "") : "";
+  return chunks.map((c, i) => ({
+    type: "learn", project, source, pinned: false,
+    pattern: i === 0 ? `${prefix}${c}` : `${prefix}[re: ${anchor}…] ${c}`,
+  }));
+}
 
 // Last assistant text from the session transcript (JSONL). Tolerant: any failure → null, capture skipped.
 function lastAssistantText(path) {

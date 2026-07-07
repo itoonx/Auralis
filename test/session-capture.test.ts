@@ -20,6 +20,18 @@ describe("session-capture ingress", () => {
     expect(learn.project).toBe("myrepo"); // project = repo basename, same brain the fleet uses
   });
 
+  it("a long prompt chunks into several learns — nothing thrown away, continuations carry a [re:] anchor", () => {
+    const prompt = "We should redesign the retrieval pipeline for the memory layer. ".repeat(40).trim(); // ~2,500 chars
+    const a = route({ ...base, hook_event_name: "UserPromptSubmit", prompt });
+    const learns = a.filter((x: any) => x.type === "learn");
+    expect(learns.length).toBeGreaterThan(1); // old clip(1200) kept ~half; chunking keeps it all
+    for (const l of learns) expect(l.source).toBe("human:prompt");
+    expect(learns[0].pattern).toMatch(/^User instruction \(session\): We should redesign/);
+    for (const l of learns.slice(1)) expect(l.pattern).toContain("[re: We should redesign"); // findable mid-chunks
+    const kept = learns.reduce((n: number, l: any) => n + l.pattern.length, 0);
+    expect(kept).toBeGreaterThan(prompt.length); // prefixes+anchors added, no content lost
+  });
+
   it("a trivial prompt stays out of the brain (event + recall only)", () => {
     const a = route({ ...base, hook_event_name: "UserPromptSubmit", prompt: "ทำต่อ" });
     expect(a.map((x: any) => x.type)).toEqual(["event", "recall"]);

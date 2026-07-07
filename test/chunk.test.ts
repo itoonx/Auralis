@@ -2,7 +2,8 @@
 // boundaries, nothing lost, short turns untouched (LongMemEval diagnosis: the
 // evidence sat past the excerpt cut in ~1,800-char assistant turns).
 import { describe, expect, it } from "vitest";
-import { chunkTurn } from "../src/run-longmemeval";
+// @ts-expect-error — plain .mjs module, no types
+import { chunkTurn } from "../hooks/session-capture.mjs";
 
 describe("chunkTurn", () => {
   it("keeps short text whole", () => {
@@ -11,7 +12,7 @@ describe("chunkTurn", () => {
 
   it("splits long text at sentence boundaries without losing content", () => {
     const long = "A sentence here. ".repeat(100).trim();
-    const chunks = chunkTurn(long);
+    const chunks: string[] = chunkTurn(long);
     expect(chunks.length).toBeGreaterThan(1);
     expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(600);
     expect(chunks.join(" ")).toBe(long);
