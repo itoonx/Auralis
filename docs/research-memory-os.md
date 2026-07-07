@@ -208,3 +208,42 @@ formulas without wiring the write path and never measured, so the flagship featu
 5. U6 folded into U5's contradiction pass.
 
 Each step ships with a before/after measurement — the same discipline that got us here.
+
+## 7. Embedding quality — analysed 2026-07-07, decision DEFERRED (do not act without the instrument)
+
+The one technical gap left after U1–U7. Current default is the **builtin char-trigram embedder**
+(256-dim lexical fingerprint); `AURALIS_SEMANTIC=1` (all-MiniLM-L6-v2 via the embed sidecar) is already
+built, opt-in.
+
+**Where trigram bites, per subsystem (from code, not theory):**
+- Hybrid retrieval: the vector list ≈ "FTS a second time" — RRF's second list adds little. The ranking
+  bench passed because its corpus is keyword-driven; a paraphrase query would expose it.
+- Sleep bands: the 0.92 dedup / 0.75–0.92 judgment thresholds come from literature calibrated on
+  SEMANTIC embeddings. On trigram, paraphrases fall below the dedup band (missed) and single-value
+  contradictions rise above it (deduped with the coarser label — the known limit already recorded).
+- Session capture: Thai prompts vs English findings — trigram cross-lingual similarity ≈ 0. Recall
+  currently survives because Thai prompts embed English tech terms; a pure-Thai query would go quiet.
+- What trigram is genuinely good at: near-identical dedup and code identifiers/paths — the workloads
+  it has passed live.
+
+**The options ladder:**
+| | quality | cost | principle check |
+|---|---|---|---|
+| A. trigram (today) | lexical only | zero deps, offline | ✓ |
+| B. MiniLM (built, opt-in) | English good, Thai weak | +1 local process, ~90MB first pull, ~10–50ms/embed | ✓ still no LLM in the write path |
+| C. multilingual (paraphrase-multilingual-MiniLM ~470MB, or bge-m3 ~2GB — Zep's choice) | real Thai↔English | more RAM/download | ✓ |
+| D. API embeddings | best | per-write cost + network | ✗ violates the free-write-path ADR — rejected |
+
+**Migration facts that block a casual flip:**
+1. Vector spaces are dim-namespaced on purpose (`lancedb-*-d256` vs `-d384`) — switching orphans every
+   existing doc from vector search until re-embedded. A **re-embed backfill command must exist first**.
+2. **Instrument first** (house rule): add a paraphrase case to the ranking bench that measurably FAILS
+   on trigram and PASSES on semantic — flip only on that evidence, not on literature.
+3. The production compose stack has no embedder service yet (the deferred P4 profile) — ships together.
+4. bench-rank/bench-graph run FTS-only by design, so they can neither regress nor *see* this change —
+   point 2 is the only honest eye.
+
+**Proposed two-step (NOT decided):** (1) build the instrument + backfill, measure trigram vs MiniLM on
+the paraphrase case; (2) if the gap is real, flip the default together with the compose profile — and
+choose the language model at that moment (if pure-Thai session queries matter, go multilingual once
+rather than flipping twice).
