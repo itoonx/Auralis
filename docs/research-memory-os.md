@@ -278,3 +278,37 @@ base, each boost component, outdated flag, as_of) from the SAME code path that c
 time — rejected (free-write-path ADR; graph + question-context cover it). Named owners/approval — single-user
 YAGNI. **The retrieval goal is the shipped formula verbatim:** RRF (relevant) × trust (trustworthy) ×
 project+graph (contextual) × outdated-sink + `as_of` (time-valid).
+
+## 9. Memory Schema — the audit and the standing rules (2026-07-07)
+
+**The rule every column lives by: a column must EARN its seat — writer + reader + a test proving it moves
+behaviour, all in the same commit.** All 19 current columns pass (each has a named consumer: ranking,
+forgetting, sleep, explain, dashboard). The Memoria lesson is the cautionary tale: schema shipped without
+wired write paths = lies that compile.
+
+**Design stances (opinions, held with evidence):**
+- **Derive, don't store.** No `status` enum (current/superseded/invalidated/archived are inferred from
+  facts), no stored `decay` (strength computes at read). Stored state desyncs; derived state cannot.
+- **No `updated_at` — deliberately.** Append-only means content never mutates (a correction is a
+  supersession). The missing column is structural proof of immutability.
+- **One trust number beats five synonyms.** The maximalist object's Authority/Trust/Confidence/Quality/
+  Reliability quintet is the most dangerous smell in the list: even ONE trust number only earns a 0.05
+  tiebreaker in ranking (measured). Ours: `trust` = prior by source; `cited/seen` = confidence earned by use.
+- **Importance-at-write rejected** — usage earns importance; a write-time guess (Generative Agents 1–10)
+  is static and noisy.
+- Embedding lives OUTSIDE the record (derived, rebuildable, dim-namespaced); relationships are a TABLE
+  (edges), not a JSON field; episodic is its own lane (events).
+
+**Verdicts on the "universal memory object" (30 fields):** present verbatim — Identity/Content/Project/
+Tags/Source/Created/Citations/Usage. Present as derived/external — Embedding/Graph/Version/Status/Decay/
+TTL. Collapsed — the trust quintet → 2 mechanisms. Rejected — Importance-at-write, full Access History
+(aggregates suffice), Dependencies (the supersede/invalidate chains are the only proven ones), Review
+Workflow / Permissions / Risk / Business-Criticality / Compliance (single-user YAGNI, per ADR).
+
+**Acknowledged debts, with re-entry triggers (do not build without the trigger):**
+1. `corroborations` — defer until sleep's winner-selection measurably misjudges equal-trust pairs; today
+   trust adjustments would vanish inside a 0.05 tiebreaker, and dedup's counter-carry is corroboration-lite.
+2. `refs` (structured Where → PR/ADR) — defer until a GitHub-aware workflow exists; today it has neither
+   writer nor reader, and graph edges already cover file-level where (M3-proven).
+3. Immutable/mutable table split — REJECTED at this scale (joins everywhere + risk to 93 proven tests to
+   solve a problem SQLite already solves); reconsider only on real WAL contention.
