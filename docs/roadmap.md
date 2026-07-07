@@ -2,6 +2,9 @@
 
 Where the platform is headed. Ordered by leverage (timing tells us which knob actually moves the needle).
 
+> **Active phase (2026-07-09):** `docs/prd-next-phase.md` — fix the measurement layer, then close the
+> three validated recall gaps (adjacency, aggregation, premise-check), ending in the P4 public number.
+
 - **Memory-OS upgrades — complete (U1–U7), all shipped and measured** (`docs/research-memory-os.md`):
   RRF+trust ranking, citation feedback, forgetting-as-ranking, bi-temporal validity with `as_of` queries,
   the sleep job (snapshot → dedup → LLM contradiction judgment writing `invalid_at`), and atomic
