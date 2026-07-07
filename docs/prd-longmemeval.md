@@ -54,3 +54,18 @@ the deferred embedder decision is waiting for.
 `M` variant (1.5M tokens — after `S` says we belong) · leaderboard submissions/PR to their repo ·
 tuning the ranker specifically to LongMemEval (benchmark-gaming; config changes must be justified by
 our own benches too, or they're overfitting).
+
+## Results (P0–P3 executed 2026-07-07 · P4 remains deferred)
+
+- **P0** ✅ S+oracle downloaded; deterministic 50-Q stratified subset (8 abstention).
+- **P1** ✅ harness + gate did its job: oracle-variant sanity started at 40% and exposed two real harness
+  bugs (judge failed "Two"≡2 and correct abstentions; single-query retrieval missed two-event temporal
+  questions) → fixed (equivalence-aware judge, multi-entity union retrieval) → 70%. Remaining misses are
+  retrieval-capability, not harness. Bonus: the concurrent run exposed and fixed an oracle id-collision
+  bug under same-millisecond parallel learns.
+- **P2** ✅ trigram baseline 58% (internal Claude-judge; 480s wall for 50 full haystacks — LLM-less
+  ingestion held: ~500 turns/question, zero ingest cost).
+- **P3** ✅ semantic A/B: 56% — no win; per-category table in research-memory-os.md §7-resolved. The
+  embedder decision is CLOSED (trigram stays) — this PRD's second purpose is fulfilled.
+- **P4** ⏸ deferred by design: the public number waits for production mileage + distribution
+  (docs/research-memory-os.md §10 sequence). Internal numbers are Claude-judged and labelled non-comparable.

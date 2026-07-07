@@ -212,9 +212,13 @@ function sanitize(q: string): string {
   const uniq = [...new Set(toks)].slice(0, 8);
   return uniq.length ? uniq.map((t) => `"${t}"`).join(" OR ") : '"_"';
 }
+// Collision-proof under concurrency: timestamp+slug alone collided when parallel learns landed in the
+// same millisecond with similar openings (found live — the LongMemEval harness ingests 3 questions at
+// once and a PK violation took the whole run down). A per-process sequence disambiguates.
+let idSeq = 0;
 function idFrom(content: string): string {
   const slug = content.slice(0, 40).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  return `learning_${Date.now()}_${slug}`.slice(0, 90);
+  return `learning_${Date.now()}${(idSeq++ % 1296).toString(36).padStart(2, "0")}_${slug}`.slice(0, 90);
 }
 // Entity resolution: normalize an entity name to a node key. ponytail: string match; embeddings later.
 function normKey(s: string): string {

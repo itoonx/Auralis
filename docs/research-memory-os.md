@@ -331,3 +331,14 @@ No distribution (ghcr/npm recorded for the next production round). The only path
 **Bottom line:** the architecture competes today; accumulated trust is the one thing left, and it can only
 be earned by running the thing. Sequence: real usage → embedder decision (via the LongMemEval A/B) →
 distribution → a neutral-benchmark number.
+
+### §7 resolved (2026-07-07): the instrument spoke — trigram STAYS
+
+The LongMemEval A/B (50-question stratified subset, S variant, identical harness/judge, verified d256 vs
+d384 spaces): trigram 58% vs MiniLM-semantic 56% TOTAL — a one-question difference, inside single-run
+noise. Semantic gained where predicted (user-facts +13, multi-session +10) but lost knowledge-update (−10)
+and collapsed on assistant-fact questions (33%→0%), and the paraphrase-heavy preference category the flip
+was supposed to rescue did not move at all (17%→17%) — the bottleneck there is not the embedder.
+DECISION: keep the zero-dependency trigram default; the flip is not justified by evidence. Revisit
+triggers: much larger per-project corpora (FTS strength dilutes), Thai-heavy recall (needs multilingual,
+not MiniLM anyway), or a full official-judge run painting a different picture.

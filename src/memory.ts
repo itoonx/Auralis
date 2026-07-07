@@ -21,6 +21,7 @@ export interface SearchHit {
   source?: string;
   type?: string;
   supersededBy?: string; // set when this finding has been superseded by a newer one (still searchable)
+  validAt?: string; // U6: when the fact became true in the world (defaults to creation when unset)
   // explain=1: why this hit was retrieved — per-list ranks, RRF base, and each boost component.
   why?: { ftsRank: number | null; vecRank: number | null; rrf: number; recency: number; usage: number; trust: number; multiplier: number; outdated: boolean; asOf: string | null };
 }
@@ -125,6 +126,7 @@ export class OracleAdapter implements MemoryAdapter {
       source: r.source,
       type: r.type,
       supersededBy: r.superseded_by ?? undefined,
+      validAt: r.valid_at ?? undefined,
       why: r.why,
     }));
   }
