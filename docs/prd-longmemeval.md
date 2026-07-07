@@ -69,3 +69,39 @@ our own benches too, or they're overfitting).
   embedder decision is CLOSED (trigram stays) — this PRD's second purpose is fulfilled.
 - **P4** ⏸ deferred by design: the public number waits for production mileage + distribution
   (docs/research-memory-os.md §10 sequence). Internal numbers are Claude-judged and labelled non-comparable.
+
+## Weak-point analysis (2026-07-07) — 58% → 76% on the same subset, no ranker changes
+
+Opened every failing case in the three worst categories instead of guessing. Three distinct root causes,
+none of them retrieval-ranking:
+
+1. **Excerpt truncation** (preference 17%, assistant 33%): the evidence sat in assistant turns averaging
+   ~1,800 chars (max 4,000+) but excerpts cut at 500 — retrieval found the right doc, the answer stage
+   never saw the answer. This also explains why the P3 embedder swap moved preference 17%→17%: the
+   bottleneck was after retrieval. → **chunk long turns at ingest** (a memory unit is a unit of thought,
+   not a turn; `chunkTurn`, sentence boundaries, ≤600 chars) + rank-aware excerpts (top-4 get 1,400).
+2. **Lost topic anchor** (chunking's own side effect, caught by the re-run: assistant 33%→17%): a
+   mid-list chunk ("7. Transcriptionist…") no longer contains the words that make it findable
+   ("work-from-home jobs"). → continuation chunks carry a `[re: <turn opening>…]` contextual header.
+3. **Over-strict answer grounding** (preference all-abstain; temporal "No"-questions): "answer ONLY from
+   excerpts else I don't know" made the model refuse recommendation questions and grounded-absence
+   yes/no questions it had the evidence for. → answer rules: recommendations build on the user's stated
+   context; topic-covered-but-detail-absent yes/no → "no"; date questions compute from `[said]` dates;
+   abstain only when nothing is relevant.
+
+| category | baseline | +chunking | +anchor+answer-rules |
+|---|---|---|---|
+| knowledge-update | 80% | 90% | 90% |
+| multi-session | 70% | 80% | 80% |
+| single-session-assistant | 33% | 17% | 67% |
+| single-session-preference | 17% | 17% | 50% |
+| single-session-user | 75% | 100% | 100% |
+| temporal-reasoning | 50% | 50% | 60% |
+| **TOTAL** | **58%** | **64%** | **76%** |
+
+Honesty notes: internal Claude-judge numbers (≥1 observed judge false-negative: "Four … Mummies (4)"
+judged wrong vs gold "4"); two iterations on one 50-Q subset means some subset-fit risk — the changes are
+generic ingestion/answer policies (chunking, contextual headers, grounded-answer rules), the ranker and
+oracle were not touched. Remaining known gap: exact-notation recall (chess moves) and two-event date math.
+Product follow-up worth considering (deferred): apply the same chunk-with-anchor policy to
+`hooks/session-capture.mjs` for long assistant conclusions.

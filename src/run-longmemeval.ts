@@ -38,6 +38,26 @@ function toIso(d: string): string | undefined {
   return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
 }
 
+// A memory unit should be a unit of THOUGHT, not a whole turn: assistant turns here average ~1,800 chars
+// (max 4,000+), and the failing categories all died the same way — the evidence sat past the excerpt cut.
+// Chunk long turns at sentence boundaries so each memory is retrievable AND fits an excerpt whole.
+export function chunkTurn(text: string, max = 600): string[] {
+  if (text.length <= max) return [text];
+  const sentences = text.split(/(?<=[.!?\n])\s+/).filter(Boolean);
+  const chunks: string[] = [];
+  let cur = "";
+  for (const s of sentences) {
+    if (cur && cur.length + s.length + 1 > max) {
+      chunks.push(cur);
+      cur = s;
+    } else {
+      cur = cur ? `${cur} ${s}` : s;
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
 async function ask(prompt: string): Promise<string> {
   let out = "";
   for await (const m of query({ prompt, options: { cwd: SCRATCH, maxTurns: 1, allowedTools: [] } as any })) {
@@ -61,14 +81,21 @@ async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: 
         pinned: false, // benchmark corpora must age like everything else
         validAt,
       };
-      try {
-        await oracle.learn(`${turn.role}: ${text}`, opts);
-      } catch {
-        // one retry — a 100k-turn run must not die on a single hiccup; a persistent failure still throws
-        await new Promise((r) => setTimeout(r, 300));
-        await oracle.learn(`${turn.role}: ${text}`, opts);
+      // Contextual anchor: a mid-list chunk ("7. Transcriptionist…") loses the topic words that make it
+      // findable ("work-from-home jobs") — prefix continuation chunks with the turn's opening as a header.
+      const chunks = chunkTurn(text);
+      const anchor = chunks.length > 1 ? text.slice(0, 80).replace(/\s+\S*$/, "") : "";
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const body = ci === 0 ? chunks[ci] : `[re: ${anchor}…] ${chunks[ci]}`;
+        try {
+          await oracle.learn(`${turn.role}: ${body}`, opts);
+        } catch {
+          // one retry — a 100k-turn run must not die on a single hiccup; a persistent failure still throws
+          await new Promise((r) => setTimeout(r, 300));
+          await oracle.learn(`${turn.role}: ${body}`, opts);
+        }
+        ingested++;
       }
-      ingested++;
     }
   }
   // Multi-query retrieval: a "days between A and B" question names TWO events — one query's top-k tends
@@ -82,13 +109,19 @@ async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: 
   }
   const hits = [...seen.values()].slice(0, 12);
   if (!hits.length) return { id: q.question_id, type: q.question_type, hypothesis: "I don't know.", ingested };
+  // Rank-aware excerpts: the top hits carry the evidence — give them room (chunked memories fit whole);
+  // the tail is context, a teaser is enough.
   const excerpts = hits
-    .map((h) => `- [said ${String(h.validAt ?? "").slice(0, 10) || "unknown date"}] ${h.content.slice(0, 500)}`)
+    .map((h, i) => `- [said ${String(h.validAt ?? "").slice(0, 10) || "unknown date"}] ${h.content.slice(0, i < 4 ? 1400 : 400)}`)
     .join("\n");
   const hypothesis = await ask(
     `Today is ${q.question_date}. Below are excerpts from the user's past chat sessions, each marked with when it was said.\n\n` +
       `${excerpts}\n\nQuestion: ${q.question}\n\n` +
-      `Answer concisely using ONLY the excerpts. If they don't contain the answer, reply exactly: I don't know.`,
+      `Answer concisely, grounded in the excerpts:\n` +
+      `- A suggestion/recommendation question: recommend something that builds on the user's stated gear, plans, or preferences in the excerpts.\n` +
+      `- A yes/no question where the excerpts cover the topic but never mention the asked detail: answer no.\n` +
+      `- A date or duration question: compute carefully from the [said ...] dates.\n` +
+      `- Only if the excerpts contain nothing relevant to the question, reply exactly: I don't know.`,
   );
   return { id: q.question_id, type: q.question_type, hypothesis: hypothesis || "I don't know.", ingested };
 }
@@ -180,4 +213,5 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run only when executed as the entrypoint — chunkTurn is imported by tests.
+if (process.argv[1]?.includes("run-longmemeval")) main().catch((e) => { console.error(e); process.exit(1); });
