@@ -148,9 +148,17 @@ async function recall(project, query) {
   }
 }
 
+// When installed globally (~/.claude/settings.json) AND the repo wires this hook itself, both copies
+// fire on every event — the global one stands down or every prompt in this repo lands twice.
+export function isDuplicateInstall(hookPath, cwd, readSettings) {
+  if (!cwd || hookPath.startsWith(cwd)) return false; // repo-local install: always runs
+  try { return readSettings(`${cwd}/.claude/settings.json`).includes("session-capture"); } catch { return false; }
+}
+
 async function main() {
   let payload = {};
   try { payload = JSON.parse(readFileSync(0, "utf8")); } catch { /* no stdin — nothing to do */ }
+  if (isDuplicateInstall(process.argv[1] ?? "", payload?.cwd ?? "", (p) => readFileSync(p, "utf8"))) process.exit(0);
   const actions = route(payload);
   let context = null;
   for (const a of actions) {

@@ -5,7 +5,7 @@ import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs module, no types; route() is the exported pure classifier
-import { route } from "../hooks/session-capture.mjs";
+import { route, isDuplicateInstall } from "../hooks/session-capture.mjs";
 
 const base = { cwd: "/Users/x/git/myrepo", session_id: "s1" };
 
@@ -86,6 +86,15 @@ describe("session-capture ingress", () => {
 
   it("Stop with no transcript captures nothing", () => {
     expect(route({ ...base, hook_event_name: "Stop" })).toEqual([]);
+  });
+
+  it("a global install stands down inside a repo that wires the hook itself (no double capture)", () => {
+    const global = "/Users/x/git/project/auralis/hooks/session-capture.mjs";
+    const wired = () => '{"hooks":{"Stop":[{"command":"node session-capture.mjs"}]}}';
+    const bare = () => { throw new Error("ENOENT"); };
+    expect(isDuplicateInstall(global, "/Users/x/git/other-repo", wired)).toBe(true); // repo wires it → defer
+    expect(isDuplicateInstall(global, "/Users/x/git/other-repo", bare)).toBe(false); // no repo wiring → capture
+    expect(isDuplicateInstall(global, "/Users/x/git/project/auralis", wired)).toBe(false); // repo-local install always runs
   });
 
   it("unknown events are ignored", () => {
