@@ -161,7 +161,7 @@ export default function App() {
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Stat icon={<Database className="size-5" />} label="findings" value={stats?.count ?? "–"} />
+          <Stat icon={<Database className="size-5" />} label="findings" value={stats?.count ?? "–"} sub={stats?.seen ? `cited ${stats.cited ?? 0} / seen ${stats.seen} (${(((stats.cited ?? 0) / stats.seen) * 100).toFixed(0)}%)` : undefined} />
           <Stat icon={<Network className="size-5" />} label="graph nodes" value={stats?.nodes ?? "–"} />
           <Stat icon={<GitBranch className="size-5" />} label="edges" value={stats?.edges ?? "–"} />
           <Stat icon={<Activity className="size-5" />} label="recall" value={stats?.embedder ?? "–"} sub={stats?.vectors ? "vectors" : "fts"} />

@@ -368,7 +368,13 @@ const server = Bun.serve({
       const n = (project
         ? db.query("SELECT COUNT(*) AS c FROM (SELECT subj_key AS k FROM edges WHERE project = ? UNION SELECT obj_key FROM edges WHERE project = ?)").get(project, project)
         : nodeCountStmt.get()) as { c: number };
-      return Response.json({ count: row.c, edges: e.c, nodes: n.c, vectors: vectorsOn, embedder });
+      // Usage health (P1's permanent instrument): cited = explicit "this helped" credits; seen = recall
+      // servings. The ratio is the better/worse dial — up means memory is earning its keep; a ratio racing
+      // toward 1 would mean cite-inflation (citing ritually), the failure mode to watch for.
+      const u = (project
+        ? db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE project = ? AND superseded_by IS NULL").get(project)
+        : db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE superseded_by IS NULL").get()) as { u: number; s: number };
+      return Response.json({ count: row.c, edges: e.c, nodes: n.c, cited: u.u, seen: u.s, vectors: vectorsOn, embedder });
     }
 
     if (req.method === "POST" && url.pathname === "/api/learn") {

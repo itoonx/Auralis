@@ -74,6 +74,7 @@ export async function graphContext(
   if (!adapter.graph) return { text: "", entities: [], docIds: [] };
   const seeds = extractEntities(seedText).slice(0, opts.maxSeeds ?? 4);
   const lines: string[] = [];
+  const lineDoc = new Map<string, string>(); // triplet line -> source finding id (first seen), so it's citable
   const entities = new Set<string>();
   const docIds = new Set<string>();
   const queried = new Set<string>();
@@ -84,15 +85,20 @@ export async function graphContext(
       queried.add(variant);
       const g = await adapter.graph(variant, project);
       for (const e of g.edges.slice(0, opts.maxEdges ?? 8)) {
-        lines.push(`${e.subject} \u2014${e.predicate}\u2192 ${e.object}`);
-        if (e.docId) docIds.add(e.docId);
+        const line = `${e.subject} \u2014${e.predicate}\u2192 ${e.object}`;
+        lines.push(line);
+        if (e.docId) {
+          docIds.add(e.docId);
+          if (!lineDoc.has(line)) lineDoc.set(line, e.docId);
+        }
       }
       for (const ent of g.entities) if (normalizeEntity(ent) !== seedKey) entities.add(ent);
     }
   }
   const uniq = [...new Set(lines)];
   return {
-    text: uniq.length ? `Connected in the knowledge graph:\n${uniq.map((l) => `- ${l}`).join("\n")}` : "",
+    // Each edge line carries the id of the finding it came from \u2014 graph-sourced knowledge is citable too.
+    text: uniq.length ? `Connected in the knowledge graph:\n${uniq.map((l) => `- ${lineDoc.has(l) ? `[${lineDoc.get(l)}] ` : ""}${l}`).join("\n")}` : "",
     entities: [...entities],
     docIds: [...docIds],
   };

@@ -136,12 +136,17 @@ export class MemoryLibrarian {
 
   async injectFor(question: string): Promise<{ context: string; hitIds: string[] }> {
     const hits = await this.adapter.search(question, { project: this.project, limit: 5 });
-    const flat = hits.map((h) => `- ${h.content}`).join("\n");
+    // Ids are shown so the worker can CITE injected findings (P1): before this, the biggest recall path
+    // fed ZERO usage signal — reuses came from here, yet none were citable, starving the U3 boost and the
+    // U4 forgetting decisions (baseline at change time: cited/seen ratio 0.029).
+    const flat = hits.map((h) => `- [${h.id}] ${h.content}`).join("\n");
     // Graph-expand (graph-linked recall): seed from the question + top hits so recall surfaces what CONNECTS
     // to what the query is about, even with no shared keywords. No-op when the brain has no graph.
     const seedText = `${question}\n${hits.map((h) => h.content).join("\n")}`;
     const gc = await log.time("graph.expand", this.project, () => graphContext(this.adapter, this.project, seedText));
-    const context = [flat, gc.text].filter(Boolean).join("\n\n");
+    const teach = "(cite the [id] of anything above that materially helps your work: mcp__oracle__cite — only real help)";
+    const body = [flat, gc.text].filter(Boolean).join("\n\n");
+    const context = body ? `${body}\n${teach}` : "";
     const hitIds = [...new Set([...hits.map((h) => h.id).filter(Boolean), ...gc.docIds])];
     return { context, hitIds };
   }

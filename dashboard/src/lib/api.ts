@@ -19,6 +19,8 @@ export interface Stats {
   count: number;
   edges: number;
   nodes: number;
+  cited?: number; // explicit "this helped" credits (usage-health dial, P1)
+  seen?: number; // recall servings
   vectors: boolean;
   embedder: string;
 }
