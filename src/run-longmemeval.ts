@@ -52,7 +52,9 @@ async function ask(prompt: string): Promise<string> {
   return out.trim();
 }
 
-async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: string; hypothesis: string; ingested: number }> {
+interface Trace { hits: { id: string; rank: number; cut: number }[]; excerpts: string }
+
+async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: string; hypothesis: string; ingested: number; trace: Trace }> {
   const project = `lme_${q.question_id}`;
   let ingested = 0;
   for (let i = 0; i < q.haystack_sessions.length; i++) {
@@ -93,12 +95,15 @@ async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: 
     for (const h of await oracle.search(ent, { project, limit: 4 })) if (!seen.has(h.id)) seen.set(h.id, h);
   }
   const hits = [...seen.values()].slice(0, 12);
-  if (!hits.length) return { id: q.question_id, type: q.question_type, hypothesis: "I don't know.", ingested };
+  if (!hits.length) return { id: q.question_id, type: q.question_type, hypothesis: "I don't know.", ingested, trace: { hits: [], excerpts: "" } };
   // Rank-aware excerpts: the top hits carry the evidence — give them room (chunked memories fit whole);
   // the tail is context, a teaser is enough.
   const excerpts = hits
     .map((h, i) => `- [said ${String(h.validAt ?? "").slice(0, 10) || "unknown date"}] ${h.content.slice(0, i < 4 ? 1400 : 400)}`)
     .join("\n");
+  // M1 observability: record exactly what retrieval returned and what the answer stage saw — the
+  // validation round had to rebuild 12 brains to learn this; the trace makes every run inspectable.
+  const trace: Trace = { hits: hits.map((h, i) => ({ id: String(h.id), rank: i + 1, cut: i < 4 ? 1400 : 400 })), excerpts };
   const hypothesis = await ask(
     `Today is ${q.question_date}. Below are excerpts from the user's past chat sessions, each marked with when it was said.\n\n` +
       `${excerpts}\n\nQuestion: ${q.question}\n\n` +
@@ -108,11 +113,29 @@ async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: 
       `- A date or duration question: compute carefully from the [said ...] dates.\n` +
       `- Only if the excerpts contain nothing relevant to the question, reply exactly: I don't know.`,
   );
-  return { id: q.question_id, type: q.question_type, hypothesis: hypothesis || "I don't know.", ingested };
+  return { id: q.question_id, type: q.question_type, hypothesis: hypothesis || "I don't know.", ingested, trace };
 }
 
-async function judgeOne(q: Q, hypothesis: string): Promise<boolean> {
+// M1 "fix the ruler": deterministic pre-check kills the measured judge false-negatives (~4% —
+// gold "Premier Silver" verbatim in the response, judged wrong). Gold present verbatim → correct,
+// no LLM verdict. Ceiling: a response that QUOTES the gold while denying it would pass wrongly —
+// accepted; the LLM judge still handles everything the pre-check can't claim.
+export function goldPrecheck(answer: unknown, hypothesis: string): boolean {
+  if (answer == null || typeof answer === "object") return false;
+  const clean = (s: string) => s.toLowerCase().replace(/[*_"'`’“”]/g, "").replace(/\s+/g, " ").trim();
+  const gold = clean(String(answer)).replace(/[.?!]+$/, "");
+  const resp = clean(hypothesis);
+  if (!gold || !resp) return false;
+  // Bare numbers need word boundaries ("4" must not match "42"); everything else needs length ≥4
+  // so trivial golds ("no") can't false-positive their way past the real judge.
+  if (/^\d+(\.\d+)?$/.test(gold)) return new RegExp(`\\b${gold.replace(".", "\\.")}\\b`).test(resp);
+  if (gold.length < 4) return false;
+  return resp.includes(gold);
+}
+
+async function judgeOne(q: Q, hypothesis: string): Promise<{ ok: boolean; reason: string }> {
   const abstention = q.question_id.includes("_abs");
+  if (!abstention && goldPrecheck(q.answer, hypothesis)) return { ok: true, reason: "gold-precheck: gold string present verbatim" };
   // Sanity-gate finding: the judge failed "Two: Dr. Smith…" against gold `2` and penalised correct
   // abstentions — be explicit that equivalence (number words, extra explanation) counts as correct.
   const verdict = await ask(
@@ -120,13 +143,13 @@ async function judgeOne(q: Q, hypothesis: string): Promise<boolean> {
       ? `This question has NO answer in the source material; the correct behaviour is to decline.\n` +
           `Question: ${q.question}\nResponse: ${hypothesis}\n` +
           `Any response expressing lack of information (e.g. "I don't know", "not enough information") is CORRECT.\n` +
-          `Did the response correctly decline (yes/no)? Answer one word.`
+          `Did the response correctly decline (yes/no)? Answer yes or no, then one short reason on the same line.`
       : `Question: ${q.question}\nGold answer: ${JSON.stringify(q.answer)}\nResponse: ${hypothesis}\n` +
           `Judge SEMANTIC equivalence: number words equal digits ("Two" = 2), extra correct detail or ` +
           `explanation does NOT make it wrong, paraphrases count. Wrong facts or missing the gold's core answer = no.\n` +
-          `Is the response correct (yes/no)? Answer one word.`,
+          `Is the response correct (yes/no)? Answer yes or no, then one short reason on the same line.`,
   );
-  return /^\s*yes/i.test(verdict);
+  return { ok: /^\s*\W*yes/i.test(verdict), reason: verdict.slice(0, 300) };
 }
 
 async function main() {
@@ -158,6 +181,8 @@ async function main() {
     const oracle = new OracleAdapter(BASE);
 
     writeFileSync(OUT, "");
+    const TRACE = OUT.replace(/\.jsonl$/, "") + ".trace.jsonl";
+    writeFileSync(TRACE, "");
     const results: { id: string; type: string; ok?: boolean }[] = [];
     let done = 0;
     const t0 = Date.now();
@@ -167,11 +192,12 @@ async function main() {
         for (let i = next++; i < qs.length; i = next++) {
           const q = qs[i];
           const r = await runOne(oracle, q);
-          const ok = JUDGE === "claude" ? await judgeOne(q, r.hypothesis) : undefined;
+          const j = JUDGE === "claude" ? await judgeOne(q, r.hypothesis) : undefined;
           appendFileSync(OUT, JSON.stringify({ question_id: r.id, hypothesis: r.hypothesis }) + "\n");
-          results.push({ id: r.id, type: r.type, ok });
+          appendFileSync(TRACE, JSON.stringify({ question_id: r.id, type: r.type, question: q.question, gold: q.answer, ...r.trace, hypothesis: r.hypothesis, ok: j?.ok, judge_reason: j?.reason, ingested: r.ingested }) + "\n");
+          results.push({ id: r.id, type: r.type, ok: j?.ok });
           done++;
-          console.log(`  [${done}/${qs.length}] ${r.id} · ${r.type} · ingested=${r.ingested}${ok === undefined ? "" : ok ? " · ✅" : " · ❌"}`);
+          console.log(`  [${done}/${qs.length}] ${r.id} · ${r.type} · ingested=${r.ingested}${j === undefined ? "" : j.ok ? " · ✅" : " · ❌"}`);
         }
       }),
     );
@@ -191,6 +217,22 @@ async function main() {
       }
       console.log(`  ${"TOTAL".padEnd(28)} ${OK}/${N}  (${((OK / N) * 100).toFixed(0)}%)`);
       console.log(`  (Claude-judge = iteration numbers; official comparability needs evaluate_qa.py + GPT-4o)`);
+      // Failure-class report: questions tagged by a past failure analysis (bench/lme/failure-tags.json)
+      // — each milestone must prove it moved ITS class and regressed nothing else.
+      let tags: Record<string, string> = {};
+      try { tags = JSON.parse(readFileSync(new URL("../bench/lme/failure-tags.json", import.meta.url), "utf8")); } catch { /* no tags — skip */ }
+      const byClass = new Map<string, { n: number; ok: number }>();
+      for (const r of results) {
+        const c = tags[r.id];
+        if (!c) continue;
+        const t = byClass.get(c) ?? { n: 0, ok: 0 };
+        t.n++; if (r.ok) t.ok++;
+        byClass.set(c, t);
+      }
+      if (byClass.size) {
+        console.log(`\n  previously-analyzed misses by failure class (pass/total this run):`);
+        for (const [c, v] of [...byClass.entries()].sort()) console.log(`  ${c.padEnd(20)} ${v.ok}/${v.n}`);
+      }
     }
     console.log(`  wall ${(Date.now() - t0) / 1000 | 0}s · hypotheses → ${OUT}`);
   } finally {
