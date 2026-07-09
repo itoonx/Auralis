@@ -37,7 +37,9 @@ export async function ensureOracle(): Promise<() => void> {
   }
 
   if (await oracleReachable()) return () => stops.forEach((s) => s());
-  const child = spawn("bun", ["run", "oracle-lite/server.ts"], { env: { ...process.env, ORACLE_RESET: "1" }, stdio: sidecarStdio });
+  // NEVER ORACLE_RESET here: a fleet run shares the ACCUMULATED brain — wiping it, and worse racing the real
+  // daemon on the default path, is what corrupted prod once (dogfooding). No daemon up → start one, no reset.
+  const child = spawn("bun", ["run", "oracle-lite/server.ts"], { env: { ...process.env }, stdio: sidecarStdio });
   stops.push(() => { try { child.kill(); } catch { /* noop */ } });
   for (let i = 0; i < 60; i++) {
     if (await oracleReachable()) return () => stops.forEach((s) => s());

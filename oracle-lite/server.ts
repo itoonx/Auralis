@@ -19,11 +19,17 @@ mkdirSync(DB_PATH.replace(/\/[^/]*$/, "") || ".", { recursive: true });
 
 const db = new Database(DB_PATH, { create: true });
 db.run("PRAGMA journal_mode = WAL;");
-if (process.env.ORACLE_RESET) {
+// ORACLE_RESET drops every table at boot — scratch/bench isolation wants that, but it must NEVER auto-wipe
+// the human's prod brain. Found live (dogfooding): fleet.ts spawned a resetting second oracle on the default
+// path during a reachability-check race and corrupted it (malformed btrees). Gate the boot reset like
+// /api/reset already is: the default prod path needs an explicit ORACLE_ALLOW_RESET; scratch/test paths reset freely.
+if (process.env.ORACLE_RESET && (DB_PATH !== ".auralis-out/brain.sqlite" || process.env.ORACLE_ALLOW_RESET)) {
   db.run("DROP TABLE IF EXISTS docs;");
   db.run("DROP TABLE IF EXISTS docs_fts;");
   db.run("DROP TABLE IF EXISTS edges;");
   db.run("DROP TABLE IF EXISTS events;");
+} else if (process.env.ORACLE_RESET) {
+  console.error("oracle-lite: ORACLE_RESET ignored on the default prod brain — set ORACLE_ALLOW_RESET to force");
 }
 db.run(`CREATE TABLE IF NOT EXISTS docs (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, concepts TEXT, project TEXT, source TEXT, created_at TEXT,
@@ -648,6 +654,10 @@ const server = Bun.serve({
 
     // Bench-only, gated behind ORACLE_ALLOW_RESET (off in normal use → no-delete guarantee unchanged).
     if (req.method === "POST" && url.pathname === "/api/reset" && process.env.ORACLE_ALLOW_RESET) {
+      // Structural backstop: never wipe the human's prod brain, even with ALLOW_RESET. Found live
+      // (dogfooding): pnpm bench sets ALLOW_RESET and, with no scratch ORACLE_DB, attaches to the prod brain
+      // and would DELETE it every trial. A bench must point ORACLE_DB at a scratch brain — refuse, don't destroy.
+      if (DB_PATH === ".auralis-out/brain.sqlite") return Response.json({ error: "refusing to reset the prod brain — set ORACLE_DB to a scratch brain" }, { status: 403 });
       db.run("DELETE FROM docs;");
       db.run("DELETE FROM docs_fts;");
       db.run("DELETE FROM edges;");
