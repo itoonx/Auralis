@@ -1,5 +1,18 @@
 # Task breakdown — Fix Recall (dispatch-ready)
 
+> ⚠️ **2026-07-10 (session 2): the waves below are SUPERSEDED** — they were derived from the retracted
+> string-proxy diagnosis. L1 (answer-path eviction), L2 (coverage/truncation/counting), and L3 (FTS
+> 8-token-cap + porter root cause) are DONE on branch `fix-recall` (55→79/90 same-instrument). See
+> `prd-fix-recall.md` SESSION-2 UPDATE. **NEXT QUEUE (in order):**
+> 1. **LanceDB batch-add fix** — single-row `vectorAdd` bloat/crash (confirmed live); batch + serialize +
+>    `ORACLE_RESET` drops the lancedb dir. Prereq for ANY semantic run.
+> 2. **C1/C2 secret cleanup + ingress scrub** — purge leaked key docs; redact sk-*/ghp_* in
+>    `hooks/session-capture.mjs` before learn.
+> 3. **R3-lite exhaustive retrieval** — 2 counting-dilution losses (bike-$, projects) need every-match-above-floor.
+> 4. **R4 query expansion** — scope SHRANK to ~2 pure-paraphrase losses (doctors↔Dr., dinner↔basil/mint);
+>    cheap-LLM rewrite, probe-first. Semantic-embedder upside now ~2-5 pts (BGE-M3 stays parked).
+> 5. **Merge `fix-recall` → main** on user approval; then controlled baseline (R1) with the fixed retrieval.
+
 Companion to `prd-fix-recall.md` (the why). This is the what/who — each task has a deliverable, the files it
 OWNS (so parallel workers don't clash), what it depends on, and its acceptance gate.
 
