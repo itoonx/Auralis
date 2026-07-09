@@ -17,6 +17,25 @@ const ORACLE = process.env.ORACLE_API_URL ?? "http://localhost:47778";
 const TIMEOUT = 1500; // ms — a memory write is never worth a laggy prompt
 const AUTH = process.env.ORACLE_TOKEN ? { authorization: `Bearer ${process.env.ORACLE_TOKEN}` } : {};
 
+// Ingress secret-scrub: a pasted key/token must NEVER reach the persistent brain. It did once — an OpenAI
+// key landed in docs.content (2 chunks) and events.human (3 prompt logs) before this existed. Redact at the
+// source, so every downstream use (learn, event, recall query) is already clean. Patterns are conservative:
+// each requires the vendor prefix + a real-length secret body, so ordinary prose ("risky", "task-3") is safe.
+const SECRET_PATTERNS = [
+  /sk-[A-Za-z0-9_-]{20,}/g,                 // OpenAI / Anthropic (sk-, sk-proj-, sk-ant-)
+  /gh[pousr]_[A-Za-z0-9]{20,}/g,            // GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_)
+  /AKIA[0-9A-Z]{16}/g,                      // AWS access key id
+  /AIza[0-9A-Za-z_-]{35}/g,                 // Google API key
+  /xox[baprs]-[A-Za-z0-9-]{10,}/g,          // Slack token
+  /\b[Bb]earer\s+[A-Za-z0-9._~+/-]{20,}=*/g,// bearer / authorization tokens
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, // PEM key blocks
+];
+export function scrub(s) {
+  let out = String(s ?? "");
+  for (const re of SECRET_PATTERNS) out = out.replace(re, "[REDACTED]");
+  return out;
+}
+
 // ---- pure ingress classifier (unit-tested) ----------------------------------------------------------
 // Decide what to do with one hook payload. Returns a list of actions; the I/O layer just executes them.
 export function route(payload) {
@@ -31,7 +50,7 @@ export function route(payload) {
   if (process.env.AURALIS_FLEET || process.env.AURALIS_NO_CAPTURE) return actions;
 
   if (kind === "UserPromptSubmit") {
-    const prompt = String(payload?.prompt ?? "").trim();
+    const prompt = scrub(String(payload?.prompt ?? "").trim());
     if (!prompt || prompt.startsWith("/") || prompt.startsWith("!")) return actions; // slash/shell — not knowledge
     if (prompt.startsWith("<")) return actions; // harness payloads (<task-notification> etc.) — not human words
     // Always on the timeline (episodic); into the brain only when substantive. Human ground truth is born
@@ -55,7 +74,7 @@ export function route(payload) {
   }
 
   if (kind === "Stop") {
-    const text = lastAssistantText(payload?.transcript_path);
+    const text = scrub(lastAssistantText(payload?.transcript_path));
     if (!text) return actions;
     // The timeline shows the full exchange — prompt → traces → ANSWER — so a replay reads as a story.
     if (text.length >= 40) actions.push({ type: "event", project, kind: "answer", actor: "claude-code", human: `✦ ${clip(text, 200)}` });

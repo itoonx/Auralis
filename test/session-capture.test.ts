@@ -5,7 +5,7 @@ import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs module, no types; route() is the exported pure classifier
-import { route, isDuplicateInstall } from "../hooks/session-capture.mjs";
+import { route, isDuplicateInstall, scrub } from "../hooks/session-capture.mjs";
 
 const base = { cwd: "/Users/x/git/myrepo", session_id: "s1" };
 
@@ -111,5 +111,25 @@ describe("session-capture ingress", () => {
   it("unknown events are ignored", () => {
     expect(route({ ...base, hook_event_name: "SomethingElse" })).toEqual([]);
     expect(route({})).toEqual([]);
+  });
+
+  it("scrub() redacts real secrets but leaves ordinary prose alone", () => {
+    // synthetic (fake) values — shapes only, never real keys
+    expect(scrub("key is sk-FAKEabcdefghijklmnopqrstuvwxyz0123")).toBe("key is [REDACTED]");
+    expect(scrub("token ghp_FAKEabcdefghijklmnopqrstuvwxyz0123")).toBe("token [REDACTED]");
+    expect(scrub("aws AKIAFAKE1234567890AB here")).toBe("aws [REDACTED] here");
+    expect(scrub("Authorization: Bearer FAKEabcdefghijklmnopqrstuv")).toBe("Authorization: [REDACTED]");
+    // conservative: prefixes without a real-length body, and normal words, are untouched
+    expect(scrub("this is risky work on task-3, sk-1 aside")).toBe("this is risky work on task-3, sk-1 aside");
+  });
+
+  it("a pasted secret never reaches learn/event — the leak that started this (docs + event log)", () => {
+    const key = "sk-FAKEabcdefghijklmnopqrstuvwxyz0123456789"; // synthetic
+    const prompt = `Please set the OpenAI key in the deploy config to ${key} before the next release goes out today.`;
+    const a = route({ ...base, hook_event_name: "UserPromptSubmit", prompt });
+    const dump = JSON.stringify(a);
+    expect(dump).not.toContain(key);        // not in the event.human, not in any learn.pattern
+    expect(dump).toContain("[REDACTED]");   // it WAS present and got redacted (not just absent by luck)
+    expect(a.some((x: any) => x.type === "learn")).toBe(true); // prompt is long enough to learn — path exercised
   });
 });

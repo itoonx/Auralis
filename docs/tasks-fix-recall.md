@@ -7,8 +7,12 @@
 > 1. ~~**LanceDB batch-add fix**~~ ✅ **DONE** — embed queue (serialized batch worker + `/api/embed-settle` +
 >    counters). Reproduced A/B/C, re-measured: 800→73 fragments, 0 concurrent drops, semantic burst completes
 >    (117ms, 100% real, 0 timeout). Test `test/embed-queue.test.ts`. See PRD "LanceDB bug: FIXED".
-> 2. **C1/C2 secret cleanup + ingress scrub** — purge leaked key docs; redact sk-*/ghp_* in
->    `hooks/session-capture.mjs` before learn.
+> 2. ~~**C1/C2 secret cleanup + ingress scrub**~~ ✅ **DONE (2026-07-10)** — C1: purged the leaked OpenAI key
+>    from the prod brain — 2 `docs` + 2 `docs_fts` rows, and (found only by raw-byte scan) **3 `events.human`
+>    prompt logs** the memory note had missed; DELETE/redact + VACUUM, raw byte-grep 6→0, integrity ok, 226→224
+>    docs, no collateral loss. C2: `scrub()` in `hooks/session-capture.mjs` redacts sk-*/ghp_*/AKIA*/AIza*/
+>    xox*/Bearer/PEM at ingress (applied to prompt + assistant text, before learn/event/recall). Test in
+>    `test/session-capture.test.ts` (synthetic keys). Prod brain is gitignored (never committed).
 > 3. **R3-lite exhaustive retrieval** — 2 counting-dilution losses (bike-$, projects) need every-match-above-floor.
 > 4. **R4 query expansion** — scope SHRANK to ~2 pure-paraphrase losses (doctors↔Dr., dinner↔basil/mint);
 >    cheap-LLM rewrite, probe-first. Semantic-embedder upside now ~2-5 pts (BGE-M3 stays parked).
