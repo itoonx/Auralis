@@ -13,18 +13,26 @@ Legend: 🔒 = owns a hot file (conflict risk) · ⚡ = isolated files (safe to 
 
 ## WAVE 1 — R0 fix the instrument (SERIAL spine; must land before any recall number counts)
 
-- **R0-1 · Debug why `AURALIS_SEMANTIC` doesn't embed in the harness** 🔒server.ts
-  Reproduce: semantic probe == trigram + 28s wall = corpus never embedded. Find the break (sidecar spawn
-  timing in the harness / oracle best-effort embed silently failing / ingest not calling the sidecar).
-  Files: `oracle-lite/server.ts` (embed path 257–335), `src/run-longmemeval.ts` (sidecar spawn 217–225).
-  Accept: a semantic probe writes real 384-d vectors (lancedb doc count > 0) and its recall **differs** from trigram.
+- **R0-1 · Debug why `AURALIS_SEMANTIC` doesn't embed** ✅ **DONE (ebe6146)**
+  Root cause found: `embed()` silently falls back to the builtin char-trigram vector PER CALL when the
+  sidecar hiccups, and `vectorAdd` disabled vectors for the WHOLE run on one LanceDB error — so a "semantic"
+  run filled the d384 table with fake lexical vectors and searched like FTS, with zero signal. Under load it's
+  worse: `learn` **awaits** the embed (server.ts:433), so a slow sidecar under concurrent ingest backs up and
+  times out — the silent fallback hid it as a fast plausible number. (5th silent failure of the session.)
 
-- **R0-2 · Embed-or-fail-loud guard** 🔒server.ts ▶R0-1
-  When `ORACLE_EMBED_URL` is set but the sidecar/embedding fails, do NOT silently fall to builtin — loud
-  error + refuse under a strict flag (`ORACLE_SEMANTIC_STRICT`). Harness: after ingest, assert
-  `/api/stats` shows embedder=semantic + vectors>0 when `AURALIS_SEMANTIC=1`, else abort.
-  Files: `oracle-lite/server.ts`, `src/run-longmemeval.ts`. Accept: a broken sidecar aborts the run, never
-  produces a silent trigram-in-disguise number.
+- **R0-2 · Observability guard** ✅ **DONE (ebe6146)** — count real-semantic vs builtin-fallback embeds,
+  expose in `/api/stats`; the harness reads it after ingest and SCREAMS if <50% were real. vectorAdd skips a
+  failed doc instead of disabling the whole run. A "semantic" number can no longer silently be trigram.
+  *Remaining strict-abort (`ORACLE_SEMANTIC_STRICT` → exit) is optional polish.*
+
+- **R2a-embed-queue · Make semantic actually engage at scale** 🔒server.ts ⚠️ **the real blocker, promoted from R2a**
+  The instrument is honest now, but semantic still can't COMPLETE a benchmark run: `await vectorAdd` blocks
+  learn on a slow single-process MiniLM sidecar → timeouts; fire-and-forget → concurrent LanceDB writes crash
+  the oracle. Fix = an **embed QUEUE**: learn returns immediately (doc+FTS already searchable), a background
+  worker batches sidecar `/embed` calls and **serializes** LanceDB writes; the harness settles/drains the
+  queue before searching (read-after-write for vectors). Files: `oracle-lite/server.ts`, maybe
+  `src/embed-sidecar.ts` (batch endpoint). Accept: a pooled-100 semantic probe COMPLETES with
+  `[semantic] >90% real` and recall that **differs** from trigram. **This is now the prereq for R2b/R4 to matter.**
 
 - **R0-3 · Recall probe: test + document as the ruler** ⚡ ▶R0-1
   Probe already built (`LME_PROBE_K`). Add one hermetic test (gold@k monotonic, abstention skipped); document
