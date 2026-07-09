@@ -256,6 +256,16 @@ async function main() {
       }),
     );
 
+    // R0-2 semantic guard: a "semantic" run silently ran on trigram when the sidecar hiccupped. Read the
+    // oracle's real embed stats and SCREAM if most embeddings fell back to builtin — never trust the flag.
+    if (process.env.AURALIS_SEMANTIC === "1") {
+      try {
+        const st: any = await (await fetch(`${BASE}/api/stats`)).json();
+        const ok = st.semantic_embeds ?? 0, fb = st.embed_fallbacks ?? 0, ratio = ok / Math.max(1, ok + fb);
+        console.log(`  [semantic] embedder=${st.embedder} real=${ok} fallback=${fb} → ${(ratio * 100).toFixed(0)}% actually semantic`);
+        if (ratio < 0.5) console.error(`  ⚠⚠ SEMANTIC DEGRADED — only ${(ratio * 100).toFixed(0)}% real embeddings; this run is mostly builtin trigram. Fix the sidecar before trusting any "semantic" number.`);
+      } catch { console.error("  ⚠ could not read /api/stats to verify semantic engagement"); }
+    }
     if (PROBE) {
       // gold-in-top-k % per type (non-abstention). Rising with k = ranking-miss (fixable); flat/low = recall-miss (needs semantic).
       const byType = new Map<string, Record<number, [number, number]>>();

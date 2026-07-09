@@ -292,11 +292,17 @@ async function semanticEmbed(text: string): Promise<number[] | null> {
     return null;
   }
 }
+// R0 observability: a "semantic" run silently degraded to trigram whenever the sidecar hiccupped — embed()
+// falls back to the builtin char-trigram vector PER CALL with no signal, so the d384 table filled with fake
+// lexical vectors and search behaved like FTS. Count both so /api/stats (and the harness) can SEE whether
+// semantic actually engaged, instead of trusting the env flag. Found live: 100% fallback under concurrent ingest.
+let semEmbedOk = 0, semEmbedFallback = 0;
 async function embed(text: string): Promise<number[]> {
   if (embedder === "semantic") {
     const v = await semanticEmbed(text);
-    if (v && v.length === EMBED_DIM) return v;
-    return builtinEmbed(text, EMBED_DIM); // per-call fallback at the same dim
+    if (v && v.length === EMBED_DIM) { semEmbedOk++; return v; }
+    semEmbedFallback++;
+    return builtinEmbed(text, EMBED_DIM); // per-call fallback at the same dim — now counted, not silent
   }
   return builtinEmbed(text, EMBED_DIM);
 }
@@ -346,7 +352,7 @@ async function vectorAdd(id: string, content: string) {
     const row = { id, vector: await embed(content), content: content.slice(0, 2000) };
     if (!vtable) vtable = await vdb.createTable("docs", [row]);
     else await vtable.add([row]);
-  } catch (e) { console.error("vector add failed, disabling vectors:", String(e).slice(0, 100)); vectorsOn = false; }
+  } catch (e) { console.error("vector add failed (skipping this doc; vectors stay on):", String(e).slice(0, 100)); } // per-doc skip — one hiccup must NOT disable vectors for the whole run (R0)
 }
 async function vectorQuery(text: string, k: number): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -407,7 +413,7 @@ const server = Bun.serve({
       const u = (project
         ? db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE project = ? AND superseded_by IS NULL").get(project)
         : db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE superseded_by IS NULL").get()) as { u: number; s: number };
-      return Response.json({ count: row.c, edges: e.c, nodes: n.c, cited: u.u, seen: u.s, vectors: vectorsOn, embedder });
+      return Response.json({ count: row.c, edges: e.c, nodes: n.c, cited: u.u, seen: u.s, vectors: vectorsOn, embedder, semantic_embeds: semEmbedOk, embed_fallbacks: semEmbedFallback });
     }
 
     if (req.method === "POST" && url.pathname === "/api/learn") {
@@ -425,6 +431,10 @@ const server = Bun.serve({
       insDoc.run(id, pattern, concepts, body?.project ?? null, source, new Date().toISOString(), body?.tier === "distilled" ? "distilled" : "raw", trustOf(source), pinned ? 1 : 0, validAt);
       insFts.run(id, pattern, concepts); // synchronous -> immediately searchable
       await vectorAdd(id, pattern);
+      // NOTE (R0/R2a): under semantic + concurrent ingest this blocks the learn on a slow sidecar embed and
+      // can time out; fire-and-forget instead crashes on concurrent LanceDB writes. The real fix is an embed
+      // QUEUE (batched sidecar calls + serialized vector writes) — tracked as R2a. Observability below now
+      // makes any silent semantic→builtin degradation visible instead of it masquerading as a "semantic" run.
       // Incremental graph AT THE INGRESS: every learn extracts heuristic triplets (pure, ~8.5ms measured,
       // no LLM in the write path) so the graph grows with the brain no matter which client wrote — fleet,
       // session hook, MCP, retro. Never a rebuild: entity keys make new edges join existing nodes, and the
