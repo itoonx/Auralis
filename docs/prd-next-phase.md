@@ -158,7 +158,7 @@ M1 is strictly first: every later gate is measured through it.
 
 | item | trigger |
 |---|---|
-| Semantic embedder re-A/B (preference class, n=4) | preference matters for the P4 target, OR production shows real paraphrase misses. Honesty: the "trigram stays" decision was made on pre-truncation-fix data (stale evidence) — but re-opening requires a full A/B on the fixed harness, not vibes |
+| ~~Semantic embedder re-A/B (preference class, n=4)~~ **CLOSED 2026-07-09** | Ran it on the fixed harness (pooled-100, expand-off, `AURALIS_SEMANTIC=1` = MiniLM-L6-v2 384-d, local): **72/100 vs trigram 79.3 ± 1.5 — decisively WORSE (−7.3)**, and worse on its own target class (semantic-mismatch 1/4 vs trigram 2–3/4; the Sugar-Factory/Patagonia paraphrase misses are NOT fixed). Consistent with P3 (56 vs 58); the gap widened because the truncation fix lifted trigram, not the embedder. n=1 but three signals converge, so the decision is robust to answer variance. **Trigram stays — now on non-stale evidence.** Do NOT re-open for MiniLM again; a *different* domain-tuned embedder would be a new question with its own A/B. |
 | MMR / diversity re-ranking | sibling crowding actually observed in recall top-3 (M0 watch item) |
 | Context budget for recall injection | injected context exceeds ~10KB in real sessions |
 | LongMemEval-M (1.5M tokens) | after the P4 `S` number is published and worth extending |
