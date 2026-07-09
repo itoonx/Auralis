@@ -168,6 +168,46 @@ lifecycle, README quickstart updated.
 **Gate:** a clean machine (or clean user account) goes zero-to-daemon with two commands.
 **Effort:** ~1 day. **Risk:** none technical; registry auth plumbing only.
 
+## Benchmark interpretation discipline (2026-07-10 — reference for every future number)
+
+The 2026 wave of 94–96% LongMemEval claims are NOT on one condition: different reader (GPT-5-mini vs
+our GPT-4o), different judge (GPT-5, often more lenient), different extractor/prompt/rerank/schema, and
+some run a modified benchmark variant. **Reader choice alone dominates the absolute score** — our own
+Claude→GPT-4o swap moved the same retrieval −17 points. So a cross-system "X% vs Y%" is mostly theatre.
+- **Do NOT** compare our 53.4 to anyone's 95 — different axes, meaningless.
+- **Do NOT** let "their 95 is inflated" erase the ONE fair comparison: same reader (GPT-4o) + official
+  judge puts us at 53.4 vs full-context 60–64 vs Zep 71.2 — and there we lose to full-context. Real signal.
+- **The only ungameable metric** = a controlled delta on OUR use case: fix reader+judge+pipeline, vary
+  ONLY the memory layer, measure auralis-memory vs full-context vs `grep` with the same reader. Memory
+  must beat full-context/grep by ≥10 pts to justify itself (per the field's own "Benchmark Theatre"). On
+  `S` with GPT-4o we're currently BELOW full-context — that, not the leaderboard, is the number to move.
+
+## P4 failure diagnosis (2026-07-10) — we lose at RETRIEVAL, not the reader
+
+Decomposed all 500 official-judged results against the trace (gold-string-in-excerpts = did retrieval
+deliver the evidence to the reader). **Answerable failures: 191 retrieval-miss vs 36 answer-miss — ~84%
+of losses are the gold never reaching the reader.** ok% tracks retrieval-recall (evid%) almost exactly:
+
+| ability | N | ok% | evid% (retrieval recall) | fails ret/ans |
+|---|---|---|---|---|
+| single-session-user | 70 | 89 | 86 | 3 / 5 |
+| knowledge-update | 78 | 77 | 75 | 8 / 9 |
+| multi-session | 133 | 40 | 26 | 64 / 14 |
+| single-session-assistant | 56 | 36 | 21 | 34 / 2 |
+| temporal-reasoning | 133 | 47 | 16 | 62 / 6 |
+| single-session-preference | 30 | 33 | **0** | 20 / 0 |
+
+Where retrieval delivers the gold (user 86, knowledge-update 75) we win; where it doesn't (preference 0,
+temporal 16, assistant 21, multi-session 26) we lose. The reader/answer stage is NOT the problem (36/500).
+The −17 Claude>GPT-4o gap is secondary: it's about extracting from noisy/partial excerpts — the ceiling is
+still set by retrieval. **evid% is a string-match lower bound** (semantic-equivalent evidence undercounted),
+but the pattern is unambiguous. **Levers, by failures gained:** (1) multi-session 64 + temporal 62 →
+aggregation/exhaustive mode (M4) + temporal-aware retrieval; (2) assistant 34 + preference 20 →
+paraphrase/semantic recall — but MiniLM already lost the A/B, so it needs HYBRID fusion (keep lexical, add
+semantic only for zero-overlap) or a better embedder or query expansion, PROVEN to move preference (0%);
+(3) reader: leave it. Note: `S` fits a context window so full-context wins here regardless — auralis's real
+edge (free ingestion at scale) is an `M`-variant (1.5M-token) question, not `S`.
+
 ## Sequence
 
 ```
