@@ -134,6 +134,19 @@ needs its own small bench.
 published honestly (README upside-only rule applies — the table goes in docs, the README gets
 one line only if the number earns it).
 **Gate:** user says go. **Effort:** one unattended evening + $5.
+**◐ Result (2026-07-09, all-OpenAI, NOT yet the official judge):** full 500-Q, trigram, expand-off,
+**GPT-4o answer + GPT-4o judge (our prompt, `LME_ANSWER=openai LME_JUDGE=openai`)** = **58%** (289/500).
+Per-ability: single-session-user 89 · knowledge-update 76 · temporal 55 · multi-session 44 · assistant
+43 · preference 43. **The humbling decomposition:** the *same* pooled-100 questions scored **62%** here
+vs **79.3%** Claude-answer+Claude-judge — **−17 points from the model pairing alone**, not distribution
+(full-500 is only −4 vs pooled-62). So most of the self-referential 79 was Claude-answers-Claude, not
+memory quality. Competitively (all GPT-4o-answered): Zep 71.2 · **full-context GPT-4o 60–64** · **us 58**
+· Mem0 49 — i.e. our memory + GPT-4o currently does NOT beat dumping full context into GPT-4o on S.
+**Caveats (= next steps, not excuses):** (a) our GPT-4o judge ≠ official `evaluate_qa.py` and is likely
+STRICTER (the field's standard judge is lenient) — 58 is a floor; the official judge may lift us several
+points. (b) the answer prompt was implicitly Claude-tuned; GPT-4o follows the abstain/recommend/date rules
+differently. **True M5 (the official `evaluate_qa.py` number) is still open** — this all-OpenAI run is the
+honest interim, and it says: verify-in-reality deflated 79→58, exactly as feared.
 
 ### M6 · Distribution round 2 — ghcr images + npm CLI
 **Why:** standing decision ("next production round we should have ghcr/npm"). Independent of

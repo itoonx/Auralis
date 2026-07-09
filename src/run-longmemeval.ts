@@ -61,18 +61,23 @@ async function ask(prompt: string): Promise<string> {
 // OpenAI judge backend (LME_JUDGE=openai). A cross-family verdict: avoids Claude judging Claude
 // (self-preference bias) and moves the internal number toward the official GPT-4o protocol. Plain
 // fetch — no SDK dependency. `temperature` omitted so reasoning models that reject it don't 400.
-async function askOpenAI(prompt: string): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("LME_JUDGE=openai needs OPENAI_API_KEY");
+async function askOpenAI(prompt: string, model: string = JUDGE_MODEL): Promise<string> {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI backend needs OPENAI_API_KEY");
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: JUDGE_MODEL, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }] }),
   });
-  if (!r.ok) throw new Error(`openai judge ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`openai ${model} ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j: any = await r.json();
   return String(j.choices?.[0]?.message?.content ?? "").trim();
 }
 const judgeAsk = (prompt: string) => (JUDGE === "openai" ? askOpenAI(prompt) : ask(prompt));
+// Answer backend: default Claude (auralis's real-world config, but 500 answers can exhaust the session
+// window). LME_ANSWER=openai answers with GPT-4o too — an apples-to-apples number vs Zep/Mem0 (both
+// GPT-4o-answered) that also sidesteps the Claude window entirely (the whole P4 run stays on OpenAI).
+const ANSWER_MODEL = process.env.LME_ANSWER_MODEL ?? "gpt-4o";
+const answerAsk = (prompt: string) => (process.env.LME_ANSWER === "openai" ? askOpenAI(prompt, ANSWER_MODEL) : ask(prompt));
 
 interface Trace { hits: { id: string; rank: number; cut: number; neighbors?: string[] }[]; excerpts: string }
 
@@ -138,7 +143,7 @@ async function runOne(oracle: OracleAdapter, q: Q): Promise<{ id: string; type: 
   // M1 observability: record exactly what retrieval returned and what the answer stage saw — the
   // validation round had to rebuild 12 brains to learn this; the trace makes every run inspectable.
   const trace: Trace = { hits: hits.map((h, i) => ({ id: String(h.id), rank: i + 1, cut: i < 4 ? 1400 : 400, neighbors: (h.neighbors ?? []).map((n) => n.id) })), excerpts };
-  const hypothesis = await ask(
+  const hypothesis = await answerAsk(
     `Today is ${q.question_date}. Below are excerpts from the user's past chat sessions, each marked with when it was said.\n\n` +
       `${excerpts}\n\nQuestion: ${q.question}\n\n` +
       `Answer concisely, grounded in the excerpts:\n` +
