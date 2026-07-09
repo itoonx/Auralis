@@ -5,7 +5,7 @@
 // the brain silently falls back, so it always boots. VALUES LAYER: append-only — no delete route;
 // obsolescence is SUPERSESSION. FTS writes are synchronous (read-after-write).
 import { Database } from "bun:sqlite";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, copyFileSync } from "node:fs";
 import { resolveClaim } from "../src/claim";
 import { extractTriplets } from "../src/triplets";
 import { rrf, trustOf, boost, boostParts, daysBetween, strength, pinnedOf, ARCHIVE_FLOOR } from "./rank";
@@ -19,6 +19,24 @@ mkdirSync(DB_PATH.replace(/\/[^/]*$/, "") || ".", { recursive: true });
 
 const db = new Database(DB_PATH, { create: true });
 db.run("PRAGMA journal_mode = WAL;");
+// Durability guard: a malformed brain silently served degraded recall for ~weeks before dogfooding caught
+// it. Check at boot and SCREAM — preserve the corrupt file for recovery so the next incident is loud, not
+// silent. quick_check catches the page-level malformation we hit (btreeInitPage) fast enough to run every boot.
+let brainMalformed = false;
+try {
+  const qc = String((db.query("PRAGMA quick_check").get() as any)?.quick_check ?? "");
+  brainMalformed = qc !== "" && qc !== "ok";
+} catch (e) {
+  // A badly-corrupt brain throws SQLITE_CORRUPT from quick_check itself — that IS the signal, not a check failure.
+  brainMalformed = /malformed|corrupt/i.test(String(e));
+  if (!brainMalformed) console.error("oracle-lite: boot integrity check could not run:", String(e).slice(0, 100));
+}
+if (brainMalformed) {
+  const keep = `${DB_PATH}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  try { copyFileSync(DB_PATH, keep); } catch { /* best effort — the copy is a courtesy, not a gate */ }
+  console.error(`\n!!!! oracle-lite: BRAIN MALFORMED at ${DB_PATH} — preserved a copy at ${keep}.\n     Refusing to serve a corrupt brain (silent degraded recall is worse than none). Recover it:\n       sqlite3 '${DB_PATH}' .recover | sqlite3 recovered.db  &&  mv recovered.db '${DB_PATH}'\n`);
+  process.exit(1);
+}
 // ORACLE_RESET drops every table at boot — scratch/bench isolation wants that, but it must NEVER auto-wipe
 // the human's prod brain. Found live (dogfooding): fleet.ts spawned a resetting second oracle on the default
 // path during a reachability-check race and corrupted it (malformed btrees). Gate the boot reset like
