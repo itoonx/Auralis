@@ -53,9 +53,11 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
   </div>
   ── end browser chrome */}
 
-  {/* ── the app (dark) ──────────────────────────────────────────────────── */}
-  <div class="st-app dark">
-    <div class="st-appbar flex items-center gap-2 border-b px-3.5 py-2 sm:gap-3 sm:px-4" aria-hidden="true">
+  {/* ── the app (dark) — a bounded viewport: navbar + rail stay put, only the
+       panel content scrolls. max-height climbs by breakpoint (500 → 600 →
+       670), and by xl the tallest tab fits without a scrollbar. ──────────── */}
+  <div class="st-app dark flex max-h-[500px] flex-col md:max-h-[600px] xl:max-h-[670px]">
+    <div class="st-appbar flex shrink-0 items-center gap-2 border-b px-3.5 py-2 sm:gap-3 sm:px-4" aria-hidden="true">
       <span class="flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" class="size-4 text-(--primary)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={ICON.logo} />
         <span class="text-[13px] font-semibold tracking-tight text-(--foreground)">auralis</span>
@@ -71,7 +73,7 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
       <span class="hidden font-mono text-[11px] text-(--muted-foreground) md:inline" title={`recorded ${runData.recordedAt.slice(0, 10)}`}>{clock}</span>
     </div>
 
-    <div class="flex">
+    <div class="flex min-h-0 flex-1">
       <div
         class="st-rail flex w-11 shrink-0 flex-col gap-1 border-r p-1.5 sm:w-36 sm:p-2"
         role="tablist"
@@ -102,7 +104,7 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
         ))}
       </div>
 
-      <div class="min-w-0 flex-1">
+      <div class="st-scroll min-w-0 flex-1 overflow-y-auto">
         <div class="st-panel" id="st-panel-overview" role="tabpanel" aria-labelledby="st-tab-overview">
           <slot name="overview" />
         </div>
@@ -295,6 +297,20 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
     from { transform: scaleX(0); }
     to { transform: scaleX(1); }
   }
+  /* the content viewport scrolls when a tab overflows the bounded height;
+     thin scrollbar to match the live studio's chrome */
+  .st-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 18%) transparent;
+  }
+  .st-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .st-scroll::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 15%);
+    border-radius: 4px;
+  }
   .st-card {
     border-radius: 0.75rem;
     border: 1px solid var(--border);
@@ -333,6 +349,7 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
   // Reduced motion never starts it.
   const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('button.st-tab[data-page]'))
   const panels = Array.from(document.querySelectorAll<HTMLElement>('.st-panel'))
+  const scroller = document.querySelector<HTMLElement>('.st-scroll')
   const select = (tab: HTMLButtonElement) => {
     for (const t of tabs) {
       const on = t === tab
@@ -340,6 +357,9 @@ const pill = `Auralis · ${runData.derived.byKind.finding} findings · ${runData
       t.classList.toggle('st-rail-active', on)
     }
     for (const p of panels) p.hidden = p.id !== `st-panel-${tab.dataset.page}`
+    // the new tab starts at the top — a leftover scroll from a taller tab
+    // would otherwise show it mid-content
+    if (scroller) scroller.scrollTop = 0
   }
 
   let timer = 0
