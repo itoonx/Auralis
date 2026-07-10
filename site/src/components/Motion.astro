@@ -65,6 +65,9 @@
       .from('#hero .hero-copy', { y: 14, opacity: 0 }, '-=0.5')
       .from('#hero .hero-ctas', { y: 12, opacity: 0 }, '-=0.4')
       .from('#hero .hero-note', { opacity: 0 }, '-=0.35')
+      // the terminal peeks above the fold, so it enters with the hero — a
+      // scroll reveal would never fire (its start sits above scroll 0)
+      .from('#replay figure', { y: 32, opacity: 0, duration: 0.7 }, '-=0.3')
 
     // ---- scroll reveals, per component ---------------------------------
     // one vocabulary: rise 20-24px + fade, staggered by group, fired once at
@@ -87,8 +90,9 @@
       })
     }
 
-    // section titles share one treatment
-    gsap.utils.toArray<Element>('main section h2').forEach((h) => {
+    // section titles share one treatment (the replay-lead h2 lives inside a
+    // rising card and would double-animate — its card reveal covers it)
+    gsap.utils.toArray<Element>('main section h2').filter((h) => !h.closest('.rp-lead')).forEach((h) => {
       gsap.from(h, {
         y: 24,
         opacity: 0,
@@ -98,7 +102,7 @@
       })
     })
 
-    rise('#replay figure', { y: 32 })
+    rise('#replay .rp-lead', { y: 28 })
     rise('#problem .grid > div', { trigger: '#problem .grid', stagger: 0.12 })
     rise('#bet h2 + figure', { y: 28 })
     rise('#bet figure ~ p')
