@@ -110,6 +110,24 @@
     rise('#limits li', { trigger: '#limits', stagger: 0.05, y: 14 })
     rise('footer > div > *', { trigger: 'footer', stagger: 0.1, y: 16 })
 
+    // a11y: reveals use autoAlpha (visibility), which removes not-yet-scrolled
+    // content from the tab order. keyboard users can outrun the triggers, so
+    // if focus lands inside a hidden reveal target, complete it instantly.
+    document.addEventListener('focusin', (e) => {
+      if (!(e.target instanceof Element)) return
+      for (const st of ScrollTrigger.getAll()) {
+        const a = st.animation
+        if (!a || a.progress() > 0) continue
+        const focused = e.target
+        const inTrigger = st.trigger instanceof Element && st.trigger.contains(focused)
+        const tw = a as gsap.core.Tween
+        const inTargets =
+          typeof tw.targets === 'function' &&
+          (tw.targets() as unknown[]).some((t) => t instanceof Element && t.contains(focused))
+        if (inTrigger || inTargets) a.progress(1)
+      }
+    })
+
     // the wall-clock bar draws itself to scale — clip-path, not scaleX, so
     // the label inside never distorts. the accent sliver lands with it.
     const bar = document.querySelector('#bet [role="img"]')

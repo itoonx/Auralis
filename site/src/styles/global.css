@@ -77,6 +77,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* fragment jumps (no-JS, reduced-motion — cases the smooth-scroll offset
+ * never sees) still need to clear the fixed nav */
+section[id],
+header[id] {
+  scroll-margin-top: 4.5rem;
+}
+
 /* Motion law: decoration-time transitions only; data time is driven by the
  * replay's virtual clock in JS. Nothing here eases a number. */
 @media (prefers-reduced-motion: reduce) {
