@@ -1,0 +1,33 @@
+---
+import Section from './Section.astro'
+
+const failures = [
+  {
+    title: 'they redo each other’s work',
+    body: 'agent B re-reads every file agent A just read — same greps, same conclusions, tokens burned twice.',
+  },
+  {
+    title: 'they forget everything',
+    body: 'tomorrow’s run re-derives today’s context from zero. a cold worker opened 9 files where a warm one needed 1.',
+  },
+  {
+    title: 'their notes don’t connect',
+    body: 'two findings about the same module sit as unrelated blobs — nothing links SessionToken to the login flow.',
+  },
+]
+---
+
+<Section id="problem" title="run one agent and it's easy. run a fleet and you've quietly built a small distributed system.">
+  <div class="grid gap-6 md:grid-cols-3">
+    {failures.map((f) => (
+      <div class="rounded-md border border-lp-border bg-lp-surface p-5">
+        <h3 class="font-mono text-sm text-lp-fg">▸ {f.title}</h3>
+        <p class="mt-3 text-sm text-lp-muted">{f.body}</p>
+      </div>
+    ))}
+  </div>
+  <p class="mt-8 max-w-2xl text-pretty text-lp-muted">
+    and the usual fix makes it worse: you gave each agent its own worktree — and quietly deleted
+    the shared state everyone was leaning on.
+  </p>
+</Section>

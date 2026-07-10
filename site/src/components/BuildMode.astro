@@ -1,0 +1,30 @@
+---
+import Section from './Section.astro'
+
+const steps = [
+  ['plan', 'the goal decomposes into files with owners — one worker, one file.'],
+  ['contract → brain', 'the game.js worker publishes play(a,b) → win|lose|tie; teammates pull it instead of guessing.'],
+  ['write in parallel', 'claim-on-write guards every Edit — a write to a teammate’s file is denied.'],
+  ['independent verdict', 'workers get no shell. an acceptance harness runs the program and asserts its contract — you can’t pass by writing assert(true).'],
+  ['fail → rework → pass', 'a forced FAIL fed its fail lines to the rework; attempt #2 passed. the loop closes itself.'],
+]
+---
+
+<Section id="build" title="build mode — workers write, auralis verifies">
+  <ol class="grid gap-4 md:grid-cols-5">
+    {steps.map(([name, body], i) => (
+      <li class="rounded-md border border-lp-border bg-lp-surface p-4">
+        <div class="font-mono text-xs text-lp-muted">{i + 1}</div>
+        <h3 class="mt-1 font-mono text-sm text-lp-fg">{name}</h3>
+        <p class="mt-2 text-xs leading-5 text-lp-muted">{body}</p>
+      </li>
+    ))}
+  </ol>
+  <p class="mt-8 max-w-2xl text-sm text-lp-muted">
+    measured: a 3-file REST API (store / router / server, interfaces agreed via the brain, reuses=2)
+    and an expression-evaluator CLI (lexer → parser → cli), both first-try PASS — verified
+    independently, including a server-restart persistence check.
+    <span class="text-lp-fg">proven small, not scaled</span> — clean decompositions, disjoint
+    files; overlapping-edit merges and a true sandbox are roadmap.
+  </p>
+</Section>

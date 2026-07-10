@@ -1,0 +1,15 @@
+---
+interface Props {
+  id: string
+  title?: string
+  wide?: boolean
+}
+const { id, title, wide = false } = Astro.props
+---
+
+<section id={id} class="border-t border-lp-border">
+  <div class:list={['mx-auto px-6 py-20 md:py-28', wide ? 'max-w-6xl' : 'max-w-5xl']}>
+    {title && <h2 class="mb-10 font-sans text-3xl font-medium lowercase text-lp-fg md:text-4xl">{title}</h2>}
+    <slot />
+  </div>
+</section>

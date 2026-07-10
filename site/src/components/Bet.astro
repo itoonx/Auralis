@@ -1,0 +1,28 @@
+---
+import Section from './Section.astro'
+---
+
+<Section id="bet">
+  <h2 class="max-w-3xl text-balance font-sans text-3xl font-medium lowercase leading-snug text-lp-fg md:text-4xl">
+    when you run many agents on one codebase, the model isn't the bottleneck — the shared state is.
+  </h2>
+
+  <!-- to-scale wall-clock bar: worker.run fills 99.9%; the platform sliver is
+       nearly invisible on purpose. Phase 2 adds the hover magnifier. -->
+  <figure class="mt-12">
+    <div class="relative h-10 overflow-hidden rounded border border-lp-border bg-lp-surface-2" role="img" aria-label="to-scale wall-clock bar: worker.run is 99.9% of wall-clock; the platform sliver, oracle.claim, averages 2.4 milliseconds">
+      <div class="flex h-full items-center px-4 font-mono text-xs text-lp-muted">worker.run · 99.9% of wall-clock</div>
+      <div class="absolute inset-y-0 right-0 w-[2px] bg-lp-accent" aria-hidden="true"></div>
+    </div>
+    <figcaption class="mt-3 flex flex-wrap items-baseline justify-between gap-2 font-mono text-xs text-lp-muted">
+      <span>drawn to actual scale — the sliver on the right is the entire platform</span>
+      <span class="text-lp-fg">oracle.claim · <b>2.4ms</b> mean · the platform adds ~0.05%</span>
+    </figcaption>
+  </figure>
+
+  <p class="mt-10 max-w-2xl text-pretty text-lp-muted">
+    so the win doesn't come from which model is typing — it comes from what the agents share.
+    auralis makes that shared state explicit: every agent reaches the same brain and gets the same
+    answer, whether it's in another process, on another machine, or running tomorrow.
+  </p>
+</Section>

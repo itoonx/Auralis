@@ -1,0 +1,42 @@
+---
+import Section from './Section.astro'
+
+const powers = [
+  ['recall by meaning', '“sign-in flow” answers “how do we authenticate” — zero shared words.'],
+  ['connect via graph', 'a SessionToken finding reached a login query through a shared auth/session.ts node (recall 1 → 2).'],
+  ['rank by earned trust', 'usage counts only citations, so ranking can’t self-reinforce its own winners. guardrail: trust may not override relevance.'],
+  ['remember when', 'as_of march returns march’s answer: the timeout changed 30s → 60s on june 1 — each date gets its own truth.'],
+  ['forget without deleting', 'strength decays, archives below the floor, decisions stay pinned — there is no delete route.'],
+  ['sleep on it', 'a nightly job judges contradictions: a real 10min → 30min conflict was classified, the stale fact retired, the reason recorded.'],
+]
+---
+
+<Section id="memory" title="a living memory, not storage">
+  <div class="grid gap-x-10 gap-y-6 md:grid-cols-2">
+    {powers.map(([name, proof]) => (
+      <div>
+        <h3 class="font-mono text-sm text-lp-fg">▸ {name}</h3>
+        <p class="mt-2 text-sm text-lp-muted">{proof}</p>
+      </div>
+    ))}
+  </div>
+
+  <!-- as_of, shown as the recorded fact pair (Phase 2 makes the date draggable) -->
+  <figure class="mt-12 overflow-hidden rounded-md border border-lp-border bg-lp-surface">
+    <div class="border-b border-lp-border px-4 py-2 font-mono text-xs text-lp-muted">
+      as_of time-travel · the recorded fact pair from docs/proven.md
+    </div>
+    <div class="grid gap-0 font-mono text-[13px] sm:grid-cols-2">
+      <div class="border-b border-lp-border p-4 sm:border-b-0 sm:border-r">
+        <div class="text-xs text-lp-muted">query as_of 2026-03</div>
+        <div class="mt-2 text-lp-fg"><span class="text-lp-accent">✓</span> timeout: 30s</div>
+        <div class="mt-1 text-xs text-lp-muted">the only answer that was true in march</div>
+      </div>
+      <div class="p-4">
+        <div class="text-xs text-lp-muted">query as_of 2026-07</div>
+        <div class="mt-2 text-lp-fg"><span class="text-lp-accent">✓</span> timeout: 60s</div>
+        <div class="mt-1 text-xs text-lp-muted"><s>30s</s> — superseded june 1, reason recorded</div>
+      </div>
+    </div>
+  </figure>
+</Section>

@@ -85,14 +85,20 @@ const events = rows.map((r) => ({
 
 // Derived counters — computed from the events, mirroring what the hero shows.
 // The page recomputes these live during replay; exporting them lets CI assert
-// that what renders matches what was recorded.
-const text = (e: { text: string | null }) => e.text ?? ''
+// that what renders matches what was recorded. Count ONLY exact markers (event
+// kind, or the CLI glyph the event text starts with) — loose substring matches
+// would count a worker grepping for the word "duplicate" as a prevented dupe.
+const glyph = (e: { text: string | null }) => (e.text ?? '').trimStart().slice(0, 1)
+const byKind: Record<string, number> = {}
+for (const e of events) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1
 const derived = {
-  claimsGranted: events.filter((e) => /claim/i.test(text(e)) && /granted|✓/.test(text(e))).length,
-  duplicatesPrevented: events.filter((e) => /prevented|duplicate/i.test(text(e))).length,
-  reworks: events.filter((e) => e.kind === 'rework' || /↻/.test(text(e))).length,
-  warnings: events.filter((e) => /⚠/.test(text(e))).length,
-  workers: [...new Set(events.map((e) => e.actor).filter((a) => a && !['human', 'conductor', 'planner'].includes(a!)))].length,
+  byKind,
+  verified: events.filter((e) => glyph(e) === '✓').length,
+  warnings: events.filter((e) => glyph(e) === '⚠').length,
+  shares: events.filter((e) => glyph(e) === '⇄').length,
+  reworks: events.filter((e) => glyph(e) === '↻').length,
+  overlapsFlagged: byKind['overlap'] ?? 0,
+  workers: [...new Set(events.map((e) => e.actor).filter((a) => a && !['human', 'conductor', 'planner', 'sentry', 'critic', 'auditor'].includes(a!)))].length,
 }
 
 const bundle = {
