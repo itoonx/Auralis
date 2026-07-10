@@ -15,7 +15,7 @@ const ingress = [
 
 <Section id="mcp" title="claude code + mcp — session memory, both ways" wide>
   <div class="grid gap-10 lg:grid-cols-[1fr_1.2fr]">
-    <div class="flex flex-col gap-4 text-pretty text-sm text-lp-muted">
+    <div class="flex min-w-0 flex-col gap-4 text-pretty text-sm text-lp-muted">
       <p>
         add one block to <span class="font-mono text-lp-fg">.mcp.json</span> and your session gets
         <span class="font-mono text-lp-fg">analyze</span> and
@@ -33,7 +33,7 @@ const ingress = [
       </p>
     </div>
 
-    <div class="overflow-x-auto rounded-md border border-lp-border">
+    <div class="min-w-0 overflow-x-auto rounded-md border border-lp-border">
       <table class="w-full min-w-[560px] border-collapse font-mono text-xs">
         <caption class="border-b border-lp-border bg-lp-surface px-4 py-2 text-left text-lp-muted">
           the ingress — every session event classified at write time, deterministically

@@ -23,6 +23,21 @@
   src: local("Menlo");
   size-adjust: 106%;
 }
+/* display serif — hero headline only (weights 300–700 via one variable axis) */
+@font-face {
+  font-family: "Cormorant Garamond Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url("@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Cormorant Garamond Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url("@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-italic.woff2") format("woff2-variations");
+}
 
 /* Landing design laws (plan §4): dark-only; grayscale base one step deeper
  * than the studio; exactly ONE accent — "proof green" — reserved for proof
@@ -43,6 +58,7 @@
 
 @theme inline {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond Variable", Georgia, serif;
   --font-mono: "Geist Mono Variable", "Geist Mono Fallback", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --color-lp-bg: var(--lp-bg);
   --color-lp-surface: var(--lp-surface);

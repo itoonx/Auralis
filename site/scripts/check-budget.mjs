@@ -29,7 +29,9 @@ const checks = [
   ['index.html (incl. inline JS) gz', html, 40 * 1024],
   ['external JS gz', js, 90 * 1024],
   ['CSS gz', css, 30 * 1024],
-  ['fonts', fonts, 65 * 1024],
+  // 65KB covered Geist+Geist Mono latin; the hero display serif (Cormorant
+  // Garamond variable, normal+italic) adds ~77KB by explicit request
+  ['fonts', fonts, 150 * 1024],
   ['first-load total gz', firstLoad, 300 * 1024],
 ]
 

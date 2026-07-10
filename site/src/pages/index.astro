@@ -17,6 +17,8 @@ import Footer from '../components/Footer.astro'
 
 import geistUrl from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url'
 import geistMonoUrl from '@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url'
+import serifUrl from '@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2?url'
+import serifItalicUrl from '@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-italic.woff2?url'
 
 const title = 'auralis — the coordination layer for ai agent fleets'
 const description =
@@ -54,6 +56,8 @@ const jsonLd = JSON.stringify({
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preload" href={geistUrl} as="font" type="font/woff2" crossorigin />
     <link rel="preload" href={geistMonoUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={serifUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={serifItalicUrl} as="font" type="font/woff2" crossorigin />
     <script is:inline type="application/ld+json" set:html={jsonLd} />
   </head>
   <body id="top">
