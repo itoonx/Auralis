@@ -63,7 +63,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { name: site-dist, path: dist }
+      # enablement: create the Pages site on first deploy (needs pages:write)
       - uses: actions/configure-pages@v5
+        with: { enablement: true }
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }
       - uses: actions/deploy-pages@v4
