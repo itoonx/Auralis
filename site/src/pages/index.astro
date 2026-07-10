@@ -1,6 +1,8 @@
 ---
 import '../styles/global.css'
+import Field from '../components/Field.astro'
 import Nav from '../components/Nav.astro'
+import Motion from '../components/Motion.astro'
 import Hero from '../components/Hero.astro'
 import Replay from '../components/Replay.astro'
 import Problem from '../components/Problem.astro'
@@ -62,22 +64,31 @@ const jsonLd = JSON.stringify({
     <script is:inline type="application/ld+json" set:html={jsonLd} />
   </head>
   <body id="top">
+    <!-- fixed layers (field canvas, nav) stay OUTSIDE the smoother wrapper:
+         ScrollSmoother transforms #smooth-content, and position:fixed inside
+         a transformed ancestor degrades to absolute -->
+    <Field />
     <Nav />
-    <main>
-      <Hero />
-      <Replay />
-      <Problem />
-      <Bet />
-      <Proof />
-      <Architecture />
-      <Memory />
-      <Coordination />
-      <BuildMode />
-      <Studio />
-      <Mcp />
-      <GettingStarted />
-      <Limits />
-    </main>
-    <Footer />
+    <div id="smooth-wrapper">
+      <div id="smooth-content">
+        <main>
+          <Hero />
+          <Replay />
+          <Problem />
+          <Bet />
+          <Proof />
+          <Architecture />
+          <Memory />
+          <Coordination />
+          <BuildMode />
+          <Studio />
+          <Mcp />
+          <GettingStarted />
+          <Limits />
+        </main>
+        <Footer />
+      </div>
+    </div>
+    <Motion />
   </body>
 </html>

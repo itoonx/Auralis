@@ -40,29 +40,5 @@ const diagram = `             mozaik · one shared event bus (the society)
   </div>
 </Section>
 
-<script>
-  // scroll reveal for the diagram only — content is fully visible by default
-  // (no-JS, crawlers, reduced-motion); JS arms the fade just-in-time, then the
-  // IntersectionObserver completes it. one of the two scroll effects the page
-  // is allowed (motion law).
-  const el = document.getElementById('arch-diagram')
-  if (el && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            el.style.opacity = '1'
-            io.disconnect()
-          }
-        }
-      },
-      { threshold: 0.25 },
-    )
-    // arm only if the section is still below the fold
-    if (el.getBoundingClientRect().top > innerHeight) {
-      el.style.opacity = '0'
-      el.style.transition = 'opacity 400ms cubic-bezier(0.16, 1, 0.3, 1)'
-    }
-    io.observe(el)
-  }
-</script>
+<!-- the diagram's scroll reveal moved to Motion.astro (GSAP) — one motion
+     system owns every reveal so timings stay consistent page-wide -->
