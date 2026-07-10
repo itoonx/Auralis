@@ -56,9 +56,9 @@ export function SearchPage({ project }: { project: string }) {
             onChange={(e) => setQ(e.target.value)}
             placeholder="how do we authenticate users?"
             aria-label="search the brain"
-            className="max-sm:h-10"
+            className="max-sm:h-9"
           />
-          <Button type="submit" disabled={busy} className="max-sm:h-10">
+          <Button type="submit" disabled={busy} className="max-sm:h-9">
             {busy ? <><Spinner className="size-3.5" /> searching…</> : "search"}
           </Button>
         </form>

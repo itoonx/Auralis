@@ -118,7 +118,7 @@ export default function App() {
             onValueChange={(v: string | null) => { setProject(v ?? ""); setRunSel("") }}
             items={projects.map((p) => ({ value: p.project, label: `${p.project} · ${p.docs} findings${p.events ? ` · ${p.events} events` : ""}` }))}
           >
-            <SelectTrigger className="order-last w-full max-sm:h-10 sm:order-none sm:w-72" title="project — only those with data are listed">
+            <SelectTrigger className="order-last w-full max-sm:h-9 sm:order-none sm:w-72" title="project — only those with data are listed">
               <SelectValue placeholder={projects.length ? "select project" : "no projects with data"} />
             </SelectTrigger>
             <SelectContent>
@@ -134,11 +134,11 @@ export default function App() {
               stale {Math.round(staleMs / 1000)}s
             </Badge>
           )}
-          {/* max-sm:h-10 = comfortable touch targets on phones without changing the desktop density. */}
+          {/* max-sm:h-9 = a slightly larger touch target on phones without towering over the header. */}
           <Toggle
             variant="outline"
             size="sm"
-            className={cn("max-sm:h-10", live && !stale && "border-primary/30 text-primary aria-pressed:bg-primary/10")}
+            className={cn("max-sm:h-9", live && !stale && "border-primary/30 text-primary aria-pressed:bg-primary/10")}
             pressed={live}
             onPressedChange={setLive}
             aria-label={live ? "pause live updates" : "resume live updates"}
@@ -146,7 +146,7 @@ export default function App() {
             {live ? <Pause className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />}
             {live ? "live" : "paused"}
           </Toggle>
-          <Button variant="ghost" size="icon" className="max-sm:size-10" onClick={() => setTick((t) => t + 1)} title="refresh now" aria-label="refresh now">
+          <Button variant="ghost" size="icon" className="max-sm:size-9" onClick={() => setTick((t) => t + 1)} title="refresh now" aria-label="refresh now">
             <RefreshCw className="size-4" aria-hidden />
           </Button>
           <span
