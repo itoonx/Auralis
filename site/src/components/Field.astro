@@ -6,7 +6,10 @@
 // pointer-events off); every number still lives in the replay section.
 ---
 
-<canvas id="hero-field" class="pointer-events-none fixed inset-0 -z-10 h-full w-full opacity-70 lg:opacity-100" aria-hidden="true"></canvas>
+<!-- style opacity:0 (not a class): the script fades it to the class-driven
+     value after the first frame paints. safe for no-JS — an undrawn canvas
+     is transparent anyway. -->
+<canvas id="hero-field" class="pointer-events-none fixed inset-0 -z-10 h-full w-full opacity-70 lg:opacity-100" style="opacity:0" aria-hidden="true"></canvas>
 <div
   class="pointer-events-none fixed inset-0 -z-10"
   style="background-image:linear-gradient(to right,oklch(1 0 0 / 2.5%) 1px,transparent 1px),linear-gradient(to bottom,oklch(1 0 0 / 2.5%) 1px,transparent 1px);background-size:40px 40px;"
@@ -270,6 +273,17 @@
 
     size()
     draw(0)
+
+    // fade-in on load: the first frame is already drawn at opacity 0; two
+    // rAFs later (so the 0 state has actually painted) ease up to the
+    // class-driven opacity (70 mobile / 100 desktop). the global
+    // reduced-motion rule collapses the transition to instant.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        cv.style.transition = 'opacity 1.6s ease-out'
+        cv.style.opacity = ''
+      }),
+    )
 
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
       // cv is fixed (always "in view") — gate on the hero section instead,
