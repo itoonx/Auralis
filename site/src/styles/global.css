@@ -80,7 +80,8 @@ body {
 /* fragment jumps (no-JS, reduced-motion — cases the smooth-scroll offset
  * never sees) still need to clear the fixed nav */
 section[id],
-header[id] {
+header[id],
+main[id] {
   scroll-margin-top: 4.5rem;
 }
 

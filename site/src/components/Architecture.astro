@@ -18,7 +18,17 @@ const diagram = `             mozaik · one shared event bus (the society)
 <Section id="architecture" title="one bus, one brain">
   <div class="grid gap-8 lg:grid-cols-[2fr_1fr]">
     <div id="arch-diagram" class="overflow-x-auto rounded-md border border-lp-border bg-lp-surface p-5">
-      <pre class="font-mono text-xs leading-relaxed text-lp-muted md:text-[13px]"><code>{diagram}</code></pre>
+      <!-- box-drawing characters read as noise character-by-character in a
+           screen reader — hide the art, provide the same content as prose -->
+      <pre aria-hidden="true" class="font-mono text-xs leading-relaxed text-lp-muted md:text-[13px]"><code>{diagram}</code></pre>
+      <p class="sr-only">
+        architecture diagram: mozaik is one shared event bus (the society) where Planner,
+        Conductor, and N Workers on any agent runtime — plus MemoryLibrarian, Sentry, Critic, and
+        Auditor — all talk to oracle-lite, the brain and middle layer (Bun with SQLite FTS5 and
+        LanceDB vectors; persistent and append-only, no delete). two channels connect them: learn,
+        search, and relate over HTTP/MCP for memory, and claim over HTTP for deterministic dedup.
+        the brain provides semantic recall, distillation, a knowledge graph, and the claim registry.
+      </p>
     </div>
     <div class="flex flex-col gap-4 text-sm text-lp-muted">
       <p>

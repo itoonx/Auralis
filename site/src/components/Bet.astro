@@ -11,7 +11,10 @@ import Section from './Section.astro'
        nearly invisible on purpose. the magnifier zooms the sliver — wow from
        honest proportions, not styling. -->
   <figure class="mt-12">
-    <div class="relative h-10 overflow-hidden rounded border border-lp-border bg-lp-surface-2" role="img" aria-label="to-scale wall-clock bar: worker.run is 99.9% of wall-clock; the platform sliver, oracle.claim, averages 2.4 milliseconds">
+    <!-- no role="img" here: it would flatten the subtree for assistive tech
+         and swallow the interactive zoom button inside. the bar's visible
+         text + the figcaption already state every number. -->
+    <div id="wallclock-bar" class="relative h-10 overflow-hidden rounded border border-lp-border bg-lp-surface-2">
       <div class="flex h-full items-center px-4 font-mono text-xs text-lp-muted">worker.run · 99.9% of wall-clock</div>
       <div class="absolute inset-y-0 right-0 w-[2px] bg-lp-accent" aria-hidden="true"></div>
       <button
@@ -20,7 +23,7 @@ import Section from './Section.astro'
         class="absolute inset-y-0 right-0 hidden w-11 cursor-zoom-in"
         aria-expanded="false"
         aria-controls="sliver-zoom"
-        title="zoom the platform sliver"></button>
+        aria-label="zoom the platform sliver"></button>
     </div>
 
     <div id="sliver-zoom" hidden class="mt-2 overflow-hidden rounded border border-lp-border bg-lp-surface">
@@ -47,7 +50,9 @@ import Section from './Section.astro'
 </Section>
 
 <script>
-  // magnifier: hover/focus/tap the sliver's 44px hit area to zoom it.
+  // magnifier: hover or tap/Enter the sliver's 44px hit area to zoom it.
+  // click is the single toggle — focus deliberately does NOT auto-open,
+  // otherwise the first Enter after tabbing in would immediately close it.
   // decoration-time only — the zoom panel toggles, nothing animates a number.
   const btn = document.getElementById('sliver-btn') as HTMLButtonElement | null
   const zoom = document.getElementById('sliver-zoom')
@@ -59,7 +64,6 @@ import Section from './Section.astro'
     }
     btn.addEventListener('click', () => set(zoom.hidden))
     btn.addEventListener('mouseenter', () => set(true))
-    btn.addEventListener('focus', () => set(true))
-    btn.addEventListener('blur', () => set(false))
+    btn.addEventListener('mouseleave', () => { if (document.activeElement !== btn) set(false) })
   }
 </script>

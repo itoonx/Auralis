@@ -23,10 +23,13 @@ const clone = 'git clone https://github.com/itoonx/Auralis'
     </p>
 
     <div class="hero-ctas mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <!-- aria-live: the ✓ copied swap is a status message (WCAG 4.1.3) —
+           without it, screen-reader users get no confirmation the copy worked -->
       <button
         id="clone-cta"
         type="button"
         data-cmd={clone}
+        aria-live="polite"
         class="w-fit cursor-pointer rounded border border-lp-border bg-lp-surface/80 px-5 py-3 font-mono text-sm text-lp-fg backdrop-blur transition-colors hover:border-lp-muted"
         title="copy to clipboard">$ {clone}</button>
       <a
