@@ -1,25 +1,22 @@
 ---
-import { runData, fmtOffset, recordedDate, transcriptEvents } from '../lib/run'
-
 const clone = 'git clone https://github.com/itoonx/Auralis'
-const events = transcriptEvents(11)
-const d = runData.derived
-const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
 ---
 
-<header class="relative overflow-hidden">
+<header class="relative">
   <!-- ambient shared-state field — decoration only (aria-hidden, pointer-events
        off); every number still lives in the replay below. raw WebGL port of the
        reference particle sphere: three.js from CDN would cost ~150KB gz against
-       the 90KB external-JS budget, this stays a few KB. -->
-  <canvas id="hero-field" class="pointer-events-none absolute inset-0 h-full w-full opacity-70 lg:opacity-100" aria-hidden="true"></canvas>
+       the 90KB external-JS budget, this stays a few KB. fixed + -z-10 floats it
+       behind the whole page (sections veil it with bg-lp-bg/85) and the sphere
+       drifts upward with scroll, mirroring the reference. -->
+  <canvas id="hero-field" class="pointer-events-none fixed inset-0 -z-10 h-full w-full opacity-70 lg:opacity-100" aria-hidden="true"></canvas>
   <div
-    class="pointer-events-none absolute inset-0"
+    class="pointer-events-none fixed inset-0 -z-10"
     style="background-image:linear-gradient(to right,oklch(1 0 0 / 2.5%) 1px,transparent 1px),linear-gradient(to bottom,oklch(1 0 0 / 2.5%) 1px,transparent 1px);background-size:40px 40px;"
     aria-hidden="true">
   </div>
 
-  <div class="relative mx-auto max-w-6xl px-6 pb-20 pt-20 md:pt-28">
+  <div class="relative mx-auto max-w-6xl px-6 pb-24 pt-20 md:pb-32 md:pt-28">
     <p class="flex items-center gap-3 font-mono text-xs tracking-widest text-lp-muted">
       <span class="h-px w-10 bg-lp-accent"></span>
       auralis · the coordination layer for agent fleets
@@ -48,40 +45,6 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     <p class="mt-3 font-mono text-xs text-lp-muted">
       running in five commands · no API key — workers reuse your Claude Code login
     </p>
-
-    <!-- The Replay — a real recorded fleet run. SSR renders the completed
-         transcript (the no-JS / reduced-motion / crawler version); the script
-         below replays it against the log's virtual clock. -->
-    <figure class="mt-16 max-w-4xl text-left">
-      <div class="overflow-hidden rounded-md border border-lp-border bg-lp-surface/80 backdrop-blur">
-        <div class="flex items-baseline justify-between gap-4 border-b border-lp-border px-4 py-2 font-mono text-xs text-lp-muted">
-          <span>recorded {recordedDate} · {runData.eventCount} events · {d.workers} workers</span>
-          <span class="flex items-center gap-3">
-            <span id="replay-speed" class="hidden text-lp-fg">12x</span>
-            <button id="replay-toggle" type="button" class="hidden cursor-pointer text-lp-fg underline-offset-4 hover:underline"></button>
-          </span>
-        </div>
-        <ol id="replay-list" class="overflow-x-auto px-4 py-3 font-mono text-xs leading-6 md:text-[13px]">
-          {events.map((e) => (
-            <li class="whitespace-nowrap" data-t={e.t} data-kind={e.kind} data-v={glyphOf(e.text) === '✓' ? '1' : undefined}>
-              <span class="text-lp-muted">{fmtOffset(e.t)}</span>
-              <span class:list={['ml-3', e.kind === 'overlap' ? 'text-lp-accent' : e.kind === 'finding' || e.kind === 'answer' ? 'text-lp-fg' : 'text-lp-muted']}>
-                {(e.text ?? '').slice(0, 96)}{(e.text ?? '').length > 96 ? '…' : ''}
-              </span>
-            </li>
-          ))}
-        </ol>
-        <div class="flex flex-wrap gap-x-6 gap-y-1 border-t border-lp-border px-4 py-2 font-mono text-xs text-lp-fg">
-          <span>findings <b data-counter="finding">{d.byKind.finding ?? 0}</b></span>
-          <span>overlaps flagged <b data-counter="overlap">{d.overlapsFlagged}</b></span>
-          <span>verified ✓ <b data-counter="verified">{d.verified}</b></span>
-          <span class="text-lp-muted">counters derived from the events above</span>
-        </div>
-      </div>
-      <figcaption class="mt-2 font-mono text-xs text-lp-muted">
-        a real fleet run over this repository — recorded events, not a mockup
-      </figcaption>
-    </figure>
   </div>
 </header>
 
@@ -105,115 +68,6 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     })
   }
 
-  // The Replay — data time is linear against the recorded log's virtual clock
-  // (12x, always labeled). Counters step discretely when their event lands;
-  // nothing is eased. Reduced motion: the completed transcript stays as
-  // rendered and replay becomes opt-in (user-initiated motion is permitted).
-  const SPEED = 12
-  const HOLD_MS = 2000
-  const list = document.getElementById('replay-list')
-  const toggle = document.getElementById('replay-toggle')
-  const speedChip = document.getElementById('replay-speed')
-
-  if (list && toggle && speedChip) {
-    const rows = [...list.querySelectorAll<HTMLLIElement>('li[data-t]')]
-    const counters = {
-      finding: document.querySelector<HTMLElement>('[data-counter="finding"]'),
-      overlap: document.querySelector<HTMLElement>('[data-counter="overlap"]'),
-      verified: document.querySelector<HTMLElement>('[data-counter="verified"]'),
-    }
-    const finals = {
-      finding: counters.finding?.textContent ?? '0',
-      overlap: counters.overlap?.textContent ?? '0',
-      verified: counters.verified?.textContent ?? '0',
-    }
-    // reserve the pane's final height so replay never shifts layout
-    list.style.minHeight = `${list.offsetHeight}px`
-
-    let raf = 0
-    let playing = false
-    let startedAt = 0
-    let pausedElapsed = 0
-
-    const paint = (elapsed: number) => {
-      let f = 0, o = 0, v = 0
-      for (const row of rows) {
-        const landed = Number(row.dataset.t) <= elapsed * SPEED
-        row.style.visibility = landed ? 'visible' : 'hidden'
-        if (landed) {
-          if (row.dataset.kind === 'finding') f++
-          if (row.dataset.kind === 'overlap') o++
-          if (row.dataset.v) v++
-        }
-      }
-      if (counters.finding) counters.finding.textContent = String(f)
-      if (counters.overlap) counters.overlap.textContent = String(o)
-      if (counters.verified) counters.verified.textContent = String(v)
-    }
-
-    const showFinal = () => {
-      for (const row of rows) row.style.visibility = 'visible'
-      if (counters.finding) counters.finding.textContent = finals.finding
-      if (counters.overlap) counters.overlap.textContent = finals.overlap
-      if (counters.verified) counters.verified.textContent = finals.verified
-    }
-
-    const lastT = Number(rows[rows.length - 1]?.dataset.t ?? 0)
-
-    const tick = (now: number) => {
-      const elapsed = pausedElapsed + (now - startedAt)
-      paint(elapsed)
-      if (elapsed * SPEED >= lastT) {
-        showFinal()
-        raf = window.setTimeout(() => {
-          pausedElapsed = 0
-          startedAt = performance.now()
-          raf = requestAnimationFrame(tick)
-        }, HOLD_MS) as unknown as number
-        return
-      }
-      raf = requestAnimationFrame(tick)
-    }
-
-    const play = () => {
-      playing = true
-      toggle.textContent = '▮▮ pause'
-      speedChip.classList.remove('hidden')
-      startedAt = performance.now()
-      raf = requestAnimationFrame(tick)
-    }
-    const pause = () => {
-      playing = false
-      toggle.textContent = '▶ replay'
-      pausedElapsed += performance.now() - startedAt
-      cancelAnimationFrame(raf)
-      clearTimeout(raf)
-    }
-
-    toggle.classList.remove('hidden')
-    toggle.addEventListener('click', () => (playing ? pause() : play()))
-
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduced) {
-      toggle.textContent = '▶ replay' // opt-in only; transcript already complete
-    } else {
-      toggle.textContent = '▶ replay'
-      // start when visible, pause when hidden — live but calm
-      const io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            if (e.isIntersecting && !playing) { pausedElapsed = 0; play() }
-            else if (!e.isIntersecting && playing) pause()
-          }
-        },
-        { threshold: 0.4 },
-      )
-      io.observe(list)
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden && playing) pause()
-      })
-    }
-  }
 </script>
 
 <script>
@@ -256,6 +110,7 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     uniform mat4 uP;
     uniform mat4 uMV;
     uniform float uTime;
+    uniform vec2 uMouse;
     varying float vNoise;
     varying float vDepth;
     ${NOISE}
@@ -264,6 +119,12 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
       float noise=snoise(vec3(pos.x*0.8+uTime*0.1,pos.y*0.8,pos.z*0.8));
       vNoise=noise;
       vec3 p=pos+normalize(pos)*noise*0.9;
+      // hover interaction (the reference's uMouse repel): points near the
+      // cursor bulge outward. uMouse arrives in view-space units at the
+      // sphere's depth, mv0.xy lives in the same space.
+      vec4 mv0=uMV*vec4(p,1.0);
+      float md=distance(uMouse,mv0.xy);
+      p+=normalize(pos)*smoothstep(4.0,0.0,md)*0.8;
       vec4 mv=uMV*vec4(p,1.0);
       gl_Position=uP*mv;
       gl_PointSize=2.4*(24.0/-mv.z)*(1.0+noise*0.5);
@@ -368,7 +229,7 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     gl.bufferData(gl.ARRAY_BUFFER, ring, gl.STATIC_DRAW)
 
     const pPos = gl.getAttribLocation(pp, 'aPos')
-    const pU = { P: gl.getUniformLocation(pp, 'uP'), MV: gl.getUniformLocation(pp, 'uMV'), time: gl.getUniformLocation(pp, 'uTime') }
+    const pU = { P: gl.getUniformLocation(pp, 'uP'), MV: gl.getUniformLocation(pp, 'uMV'), time: gl.getUniformLocation(pp, 'uTime'), mouse: gl.getUniformLocation(pp, 'uMouse') }
     const lPos = gl.getAttribLocation(lp, 'aPos')
     const lU = { P: gl.getUniformLocation(lp, 'uP'), MV: gl.getUniformLocation(lp, 'uMV'), color: gl.getUniformLocation(lp, 'uColor') }
 
@@ -382,14 +243,18 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     let g = { x: 6, y: 1.5, z: 0, s: 1 }
     const layout = () => {
       // mobile: further + higher so body copy never sits on dense dots
-      g = window.innerWidth < 1024 ? { x: 0, y: 6.5, z: -8, s: 0.9 } : { x: 6, y: 1.5, z: 0, s: 1 }
+      g = window.innerWidth < 1024 ? { x: 0, y: 6.5, z: -8, s: 0.8 } : { x: 6.5, y: 0.5, z: 0, s: 0.85 }
     }
 
-    let mx = 0, my = 0, camX = 0, camY = 0
+    // hover only bulges nearby points — the camera itself never moves
+    let mx = 0, my = 0, smx = 99, smy = 99
     window.addEventListener('mousemove', (e) => {
       mx = (e.clientX / window.innerWidth) * 2 - 1
       my = -(e.clientY / window.innerHeight) * 2 + 1
     })
+    // the reference's scroll float: the sphere rises as the page scrolls
+    let sy = 0
+    window.addEventListener('scroll', () => { sy = window.scrollY }, { passive: true })
 
     const draw = (t: number) => {
       gl.viewport(0, 0, cv.width, cv.height)
@@ -399,8 +264,8 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
       const P = persp(50, cv.width / Math.max(1, cv.height), 0.1, 100)
-      const view = trans(-camX, -camY, -18)
-      const model = mul(trans(g.x, g.y, g.z), mul(rotY(t * 0.05), mul(rotZ(Math.sin(t * 0.1) * 0.05), scaleM(g.s))))
+      const view = trans(0, 0, -18)
+      const model = mul(trans(g.x, g.y + sy * 0.002, g.z), mul(rotY(t * 0.05), mul(rotZ(Math.sin(t * 0.1) * 0.05), scaleM(g.s))))
 
       gl.useProgram(pp)
       gl.bindBuffer(gl.ARRAY_BUFFER, pBuf)
@@ -409,6 +274,7 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
       gl.uniformMatrix4fv(pU.P, false, P)
       gl.uniformMatrix4fv(pU.MV, false, mul(view, model))
       gl.uniform1f(pU.time, t)
+      gl.uniform2f(pU.mouse, smx, smy)
       gl.drawArrays(gl.POINTS, 0, N)
 
       gl.useProgram(lp)
@@ -430,8 +296,11 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     let running = false
     const frame = () => {
       tt += 0.015
-      camX += (mx * 0.5 - camX) * 0.05
-      camY += (my * 0.5 - camY) * 0.05
+      // cursor → view-space units at the sphere's depth plane (z=18, fov 50)
+      const hh = Math.tan((25 * Math.PI) / 180) * 18
+      const hw = hh * (cv.width / Math.max(1, cv.height))
+      smx += (mx * hw - smx) * 0.08
+      smy += (my * hh - smy) * 0.08
       draw(tt)
       raf = requestAnimationFrame(frame)
     }
@@ -458,12 +327,19 @@ const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
     draw(0)
 
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // cv is fixed (always "in view") — gate on the hero section instead,
+      // with margin so the float keeps moving while the field still peeks
+      // through the veiled sections just below
+      const hero = cv.closest('header') ?? cv
       let inView = false
-      new IntersectionObserver((entries) => {
-        inView = entries[entries.length - 1].isIntersecting
-        if (inView && !document.hidden) start()
-        else stop()
-      }).observe(cv)
+      new IntersectionObserver(
+        (entries) => {
+          inView = entries[entries.length - 1].isIntersecting
+          if (inView && !document.hidden) start()
+          else stop()
+        },
+        { rootMargin: '50% 0px 50% 0px' },
+      ).observe(hero)
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) stop()
         else if (inView) start()
