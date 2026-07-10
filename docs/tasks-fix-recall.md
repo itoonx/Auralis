@@ -200,3 +200,18 @@ after R1:   R2a ⚡ ∥ R2b ⚡ ∥ R4 ⚡   (disjoint files — true parallel) 
 after W3:   R5 → R6
 ```
 Rule: never run two 🔒-same-file tasks concurrently without a worktree. The ⚡ tasks are the real parallel wins.
+
+---
+
+## Token-optimization + Ops (2026-07-10, session cont.) — CLOSED
+
+**Token optimization — measured, then CLOSED (keep cap-96).**
+- Production-serving budget decomposed (memory arm, n=84): retrieval-input (excerpts+prompt) = **~9,568 tok = 92% of serving**; reader reasoning+output = 835 (8%); final answer ~39 tok. The ~31k agent boilerplate is a benchmark artifact (Claude Code sys+tools), not production. → retrieval-input is the only lever worth cutting.
+- Coverage curve (evidAll, union pipeline, subset90): **knee = k=60** (OVERALL 90% vs 92% ceiling@96; 48→60 = +7pp, 60→96 = +2pp). cap-60 saves ~13% tokens (9,124→7,900/query; 71/90 hit the cap).
+- **cap-60 is NOT free.** Full-90 verify (71 truncated Qs, reader+judge, same-instrument) found 1 STABLE regression — `gpt4_d84a3211` (bike total $185→$40): the component PRICES ($120 helmet @rank 78, $25 chain @rank 66) sit in the truncated tail, so cap-60 sees the item names but not the prices → can't sum. cap-72 doesn't save it either ($120 @rank 78). The raw "+3 net" was an ARTIFACT — cap-60 ⊂ cap-96 (strict prefix), so "gains" are structurally impossible; they were reader non-determinism on counting/temporal (±4 noise band). → **Decision: keep cap-96** — 13% tokens is not worth 1 mechanism-confirmed multi-session-sum question given token-opt is already at diminishing returns.
+- **Multi-session accepted as a retrieval CEILING.** ms_probe (raw+expanded search k=48..800, 15 multi-session Qs): 7/15 fail evidAll@96 → RANKING 0 / QUERY-GAP 1 / LEXICAL-MISS 6. Raising the limit 96→800 recovers nothing; failures are hypernym mismatch (question "citrus" vs evidence "orange/lime/lemon" — FTS can't bridge). Accuracy is already ≥ full-context on this type (mem 13/15 vs full 12/15; 55% coverage but 87% accuracy — the reader compensates). Semantic could bridge it but costs more than the ≤1-2 Qs it recovers + risks regressing the other 5 types → not built. The "Context Compiler" framing (version-collapse / symbol-compression / IR) optimizes a stage already near-optimal (token) or not the bottleneck (compression ≠ the retrieval gap) — declined on measured grounds.
+
+**Ops — reboot-autostart + backup (DONE + verified).**
+- Reboot: `orb config set app.start_at_login true` (was false) + containers `restart: unless-stopped` → the stack survives a machine reboot (login → OrbStack → containers auto-restart).
+- Backup: `auralis backup` — WAL-safe `sqlite3 .backup` (NOT `cp` — a raw copy of a live WAL'd db corrupts) → `.auralis-out/backups/daily/`, 14-day retention, SEPARATE from the server's `/api/snapshot` 5-slot pre-mutation safety net. `auralis backup --install` schedules it daily via launchd (04:00) — verified running under launchd (exit 0, sqlite3 resolves in the minimal env). LanceDB vectors are re-derivable from docs, so the sqlite brain is the whole backup. `auralis doctor` now reports reboot + backup readiness.
+- Still open (not this session): `ORACLE_TOKEN` auth is unset (API has no bearer; bound to 127.0.0.1 only). The token-opt findings' scratch artifacts live in the session scratchpad (`budget_curve.ts`, `ms_probe.ts`, `cap_sweep/`, `full60_verify_wf.js`, `prep_cap60.ts`).
