@@ -104,7 +104,23 @@ subset90 so it's directly comparable to memory's 85/90:
 - **R1-2 · grep mode** ✅ **BUILT (2026-07-10)** — `LME_MODE=grep`: lexical top-96 turns by question-word
   overlap over RAW turns — no chunking/edges/RRF/entity/expansion (isolates "does the memory LAYER beat dumb
   keyword match?"). Same reader. Files: `src/run-longmemeval.ts`.
-- **R1-3 · three-way delta report** ✅ **DONE — FULL 90×3 (2026-07-10, uniform 90-agent judge panel).**
+- **R1-3 CORRECTION (2026-07-10, same day — verify-reality caught it while measuring the token budget):**
+  ⚠️ **The "full-context" arm below is INVALID and its token-benefit headline is RETRACTED.** Measuring actual
+  per-query token consumption (from the reader-agent transcripts) revealed the full-context reader NEVER
+  ingested the 125k haystack: the excerpts were delivered via a **Read tool that caps large files** (a 4,661-line
+  / 519KB file returns "197 chars, specify a range" on the first Read), so the agent fell back to **Bash grep +
+  offset-Read** — 0/60 full-context agents saw >60k of context (avg 33.5k actual). So "full-context" was really
+  *agentic file-search*, not full-context. Consequences: (a) the **81/90 full-context accuracy is mislabeled**
+  (it's agentic-grep, not true full-context — true full-context accuracy is UNMEASURED); (b) the **"memory is
+  12.9× cheaper / Pareto-superior / 13.4× more efficient" claims are RETRACTED** — they paired memory's real
+  in-context 9.1k against full-context's *file size* (117k), which the reader never actually consumed. What
+  STANDS: **memory 84/90 is valid** (9.1k excerpts, small enough that Read didn't truncate → fully in-context).
+  grep (52k) was ALSO partly truncated → also confounded. **Fix in progress: a full-ingestion reader (chunked
+  parts, read-all) so every arm truly ingests its excerpts and token usage reflects true cost, then re-run.**
+  The mistake was mine: I asserted token cost from *file size* (a HYPOTHESIS) instead of verifying *actual
+  consumption* (rule 1: assert the outcome, not the call) — the 6th silent failure of the project.
+
+- **R1-3 · three-way delta report** ⚠️ **SUPERSEDED BY THE CORRECTION ABOVE — full-context invalid.** FULL 90×3 (2026-07-10, uniform 90-agent judge panel).
   **memory 84/90 (93.3%) · full-context 81/90 (90.0%) · grep 54/90 (60.0%).** memory ≥ full-context on **89/90**
   questions (mem-wins-4, full-wins-1). **BENEFIT (the token-optimization headline):** measured token cost —
   memory **9.1k** tok/q, full-context **117.6k** (12.9×), grep 52.4k (5.7×). memory is **Pareto-superior**:
