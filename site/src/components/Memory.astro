@@ -21,18 +21,40 @@ const powers = [
     ))}
   </div>
 
-  <!-- as_of, shown as the recorded fact pair (Phase 2 makes the date draggable) -->
+  <!-- as_of time-travel: drag the date, the recalled answer flips — the real
+       fact pair from docs/proven.md. SSR shows both dates side by side (the
+       no-JS version); the slider highlights the one that was true "then". -->
   <figure class="mt-12 overflow-hidden rounded-md border border-lp-border bg-lp-surface">
     <div class="border-b border-lp-border px-4 py-2 font-mono text-xs text-lp-muted">
       as_of time-travel · the recorded fact pair from docs/proven.md
     </div>
+
+    <div id="asof-slider" hidden class="border-b border-lp-border px-4 py-4">
+      <label for="asof-range" class="block font-mono text-xs text-lp-muted">
+        query as_of <span id="asof-label" class="text-lp-fg">2026-03</span> — drag the date
+      </label>
+      <input
+        id="asof-range"
+        type="range"
+        min="0"
+        max="4"
+        step="1"
+        value="0"
+        class="mt-2 w-full accent-[oklch(0.84_0.15_160)]"
+        aria-label="as_of query date"
+      />
+      <div class="mt-1 flex justify-between font-mono text-[11px] text-lp-muted" aria-hidden="true">
+        <span>2026-03</span><span>jun 1 · fact changed</span><span>2026-07</span>
+      </div>
+    </div>
+
     <div class="grid gap-0 font-mono text-[13px] sm:grid-cols-2">
-      <div class="border-b border-lp-border p-4 sm:border-b-0 sm:border-r">
+      <div id="asof-march" class="border-b border-lp-border p-4 transition-opacity sm:border-b-0 sm:border-r">
         <div class="text-xs text-lp-muted">query as_of 2026-03</div>
         <div class="mt-2 text-lp-fg"><span class="text-lp-accent">✓</span> timeout: 30s</div>
         <div class="mt-1 text-xs text-lp-muted">the only answer that was true in march</div>
       </div>
-      <div class="p-4">
+      <div id="asof-july" class="p-4 transition-opacity">
         <div class="text-xs text-lp-muted">query as_of 2026-07</div>
         <div class="mt-2 text-lp-fg"><span class="text-lp-accent">✓</span> timeout: 60s</div>
         <div class="mt-1 text-xs text-lp-muted"><s>30s</s> — superseded june 1, reason recorded</div>
@@ -40,3 +62,31 @@ const powers = [
     </div>
   </figure>
 </Section>
+
+<script>
+  // as_of slider — keyboard-operable (native range), aria-valuetext carries the
+  // month. the answer "flip" is an opacity crossfade ≤200ms (decoration time).
+  const wrap = document.getElementById('asof-slider')
+  const range = document.getElementById('asof-range') as HTMLInputElement | null
+  const label = document.getElementById('asof-label')
+  const march = document.getElementById('asof-march')
+  const july = document.getElementById('asof-july')
+  if (wrap && range && label && march && july) {
+    wrap.hidden = false
+    const months = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07']
+    const names = ['March 2026', 'April 2026', 'May 2026', 'June 2026', 'July 2026']
+    const apply = () => {
+      const i = Number(range.value)
+      label.textContent = months[i] ?? months[0]
+      range.setAttribute('aria-valuetext', names[i] ?? names[0])
+      // as_of returns only the answer that was true then — mirror that exactly:
+      // one card per date, not a dimmed pair (the timeout changed on june 1)
+      const after = i >= 3
+      march.hidden = after
+      july.hidden = !after
+      march.classList.toggle('sm:border-r', !after)
+    }
+    range.addEventListener('input', apply)
+    apply()
+  }
+</script>

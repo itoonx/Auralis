@@ -4,6 +4,7 @@ import { runData, fmtOffset, recordedDate, transcriptEvents } from '../lib/run'
 const clone = 'git clone https://github.com/itoonx/Auralis'
 const events = transcriptEvents(11)
 const d = runData.derived
+const glyphOf = (t: string | null) => (t ?? '').trimStart().slice(0, 1)
 ---
 
 <header class="mx-auto max-w-5xl px-6 pb-20 pt-24 text-center md:pt-32">
@@ -18,7 +19,12 @@ const d = runData.derived
   </p>
 
   <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-    <code class="rounded border border-lp-border bg-lp-surface px-5 py-3 font-mono text-sm text-lp-fg">$ {clone}</code>
+    <button
+      id="clone-cta"
+      type="button"
+      data-cmd={clone}
+      class="cursor-pointer rounded border border-lp-border bg-lp-surface px-5 py-3 font-mono text-sm text-lp-fg transition-colors hover:border-lp-muted"
+      title="copy to clipboard">$ {clone}</button>
     <a
       href="https://github.com/itoonx/Auralis/blob/main/docs/proven.md"
       class="px-4 py-3 font-mono text-sm text-lp-muted underline-offset-4 hover:text-lp-fg hover:underline">read the proof →</a>
@@ -27,18 +33,21 @@ const d = runData.derived
     running in five commands · no API key — workers reuse your Claude Code login
   </p>
 
-  <!-- The Replay — a real recorded fleet run. Phase 2 animates this transcript
-       against the log's virtual clock; the static render below is the
-       reduced-motion / no-JS / crawler version and ships first. -->
+  <!-- The Replay — a real recorded fleet run. SSR renders the completed
+       transcript (the no-JS / reduced-motion / crawler version); the script
+       below replays it against the log's virtual clock. -->
   <figure class="mx-auto mt-14 max-w-4xl text-left">
     <div class="overflow-hidden rounded-md border border-lp-border bg-lp-surface">
       <div class="flex items-baseline justify-between gap-4 border-b border-lp-border px-4 py-2 font-mono text-xs text-lp-muted">
         <span>recorded {recordedDate} · {runData.eventCount} events · {d.workers} workers</span>
-        <span class="hidden sm:inline">run {runData.runId}</span>
+        <span class="flex items-center gap-3">
+          <span id="replay-speed" class="hidden text-lp-fg">12x</span>
+          <button id="replay-toggle" type="button" class="hidden cursor-pointer text-lp-fg underline-offset-4 hover:underline"></button>
+        </span>
       </div>
-      <ol class="overflow-x-auto px-4 py-3 font-mono text-xs leading-6 md:text-[13px]">
+      <ol id="replay-list" class="overflow-x-auto px-4 py-3 font-mono text-xs leading-6 md:text-[13px]">
         {events.map((e) => (
-          <li class="whitespace-nowrap">
+          <li class="whitespace-nowrap" data-t={e.t} data-kind={e.kind} data-v={glyphOf(e.text) === '✓' ? '1' : undefined}>
             <span class="text-lp-muted">{fmtOffset(e.t)}</span>
             <span class:list={['ml-3', e.kind === 'overlap' ? 'text-lp-accent' : e.kind === 'finding' || e.kind === 'answer' ? 'text-lp-fg' : 'text-lp-muted']}>
               {(e.text ?? '').slice(0, 96)}{(e.text ?? '').length > 96 ? '…' : ''}
@@ -47,9 +56,9 @@ const d = runData.derived
         ))}
       </ol>
       <div class="flex flex-wrap gap-x-6 gap-y-1 border-t border-lp-border px-4 py-2 font-mono text-xs text-lp-fg">
-        <span>findings <b>{d.byKind.finding ?? 0}</b></span>
-        <span>overlaps flagged <b>{d.overlapsFlagged}</b></span>
-        <span>verified ✓ <b>{d.verified}</b></span>
+        <span>findings <b data-counter="finding">{d.byKind.finding ?? 0}</b></span>
+        <span>overlaps flagged <b data-counter="overlap">{d.overlapsFlagged}</b></span>
+        <span>verified ✓ <b data-counter="verified">{d.verified}</b></span>
         <span class="text-lp-muted">counters derived from the events above</span>
       </div>
     </div>
@@ -58,3 +67,134 @@ const d = runData.derived
     </figcaption>
   </figure>
 </header>
+
+<script>
+  // copy-command CTA — speaks the event vocabulary (✓) for 800ms
+  const cta = document.getElementById('clone-cta') as HTMLButtonElement | null
+  if (cta) {
+    const original = cta.textContent
+    cta.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(cta.dataset.cmd!)
+        cta.textContent = '✓ copied'
+        cta.classList.add('text-lp-accent')
+        setTimeout(() => {
+          cta.textContent = original
+          cta.classList.remove('text-lp-accent')
+        }, 800)
+      } catch {
+        /* clipboard unavailable — the command is selectable text either way */
+      }
+    })
+  }
+
+  // The Replay — data time is linear against the recorded log's virtual clock
+  // (12x, always labeled). Counters step discretely when their event lands;
+  // nothing is eased. Reduced motion: the completed transcript stays as
+  // rendered and replay becomes opt-in (user-initiated motion is permitted).
+  const SPEED = 12
+  const HOLD_MS = 2000
+  const list = document.getElementById('replay-list')
+  const toggle = document.getElementById('replay-toggle')
+  const speedChip = document.getElementById('replay-speed')
+
+  if (list && toggle && speedChip) {
+    const rows = [...list.querySelectorAll<HTMLLIElement>('li[data-t]')]
+    const counters = {
+      finding: document.querySelector<HTMLElement>('[data-counter="finding"]'),
+      overlap: document.querySelector<HTMLElement>('[data-counter="overlap"]'),
+      verified: document.querySelector<HTMLElement>('[data-counter="verified"]'),
+    }
+    const finals = {
+      finding: counters.finding?.textContent ?? '0',
+      overlap: counters.overlap?.textContent ?? '0',
+      verified: counters.verified?.textContent ?? '0',
+    }
+    // reserve the pane's final height so replay never shifts layout
+    list.style.minHeight = `${list.offsetHeight}px`
+
+    let raf = 0
+    let playing = false
+    let startedAt = 0
+    let pausedElapsed = 0
+
+    const paint = (elapsed: number) => {
+      let f = 0, o = 0, v = 0
+      for (const row of rows) {
+        const landed = Number(row.dataset.t) <= elapsed * SPEED
+        row.style.visibility = landed ? 'visible' : 'hidden'
+        if (landed) {
+          if (row.dataset.kind === 'finding') f++
+          if (row.dataset.kind === 'overlap') o++
+          if (row.dataset.v) v++
+        }
+      }
+      if (counters.finding) counters.finding.textContent = String(f)
+      if (counters.overlap) counters.overlap.textContent = String(o)
+      if (counters.verified) counters.verified.textContent = String(v)
+    }
+
+    const showFinal = () => {
+      for (const row of rows) row.style.visibility = 'visible'
+      if (counters.finding) counters.finding.textContent = finals.finding
+      if (counters.overlap) counters.overlap.textContent = finals.overlap
+      if (counters.verified) counters.verified.textContent = finals.verified
+    }
+
+    const lastT = Number(rows[rows.length - 1]?.dataset.t ?? 0)
+
+    const tick = (now: number) => {
+      const elapsed = pausedElapsed + (now - startedAt)
+      paint(elapsed)
+      if (elapsed * SPEED >= lastT) {
+        showFinal()
+        raf = window.setTimeout(() => {
+          pausedElapsed = 0
+          startedAt = performance.now()
+          raf = requestAnimationFrame(tick)
+        }, HOLD_MS) as unknown as number
+        return
+      }
+      raf = requestAnimationFrame(tick)
+    }
+
+    const play = () => {
+      playing = true
+      toggle.textContent = '▮▮ pause'
+      speedChip.classList.remove('hidden')
+      startedAt = performance.now()
+      raf = requestAnimationFrame(tick)
+    }
+    const pause = () => {
+      playing = false
+      toggle.textContent = '▶ replay'
+      pausedElapsed += performance.now() - startedAt
+      cancelAnimationFrame(raf)
+      clearTimeout(raf)
+    }
+
+    toggle.classList.remove('hidden')
+    toggle.addEventListener('click', () => (playing ? pause() : play()))
+
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) {
+      toggle.textContent = '▶ replay' // opt-in only; transcript already complete
+    } else {
+      toggle.textContent = '▶ replay'
+      // start when visible, pause when hidden — live but calm
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting && !playing) { pausedElapsed = 0; play() }
+            else if (!e.isIntersecting && playing) pause()
+          }
+        },
+        { threshold: 0.4 },
+      )
+      io.observe(list)
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && playing) pause()
+      })
+    }
+  }
+</script>
