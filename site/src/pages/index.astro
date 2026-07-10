@@ -1,0 +1,55 @@
+---
+// Landing page — Phase 1 fills the 13 sections (see plan: auralis-landing-page.md).
+// Phase 0 ships the static hero skeleton: real copy, real HTML, zero islands.
+import '../styles/global.css'
+
+const title = 'auralis — the coordination layer for ai agent fleets'
+const description =
+  'redundant work −53% on a live run. one shared, persistent brain + real-time coordination for fleets of AI coding agents — measured, not asserted.'
+const clone = 'git clone https://github.com/itoonx/Auralis'
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101010" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <main class="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center gap-6 px-6 py-24 text-center">
+      <p class="font-mono text-xs tracking-widest text-lp-muted">
+        auralis · the coordination layer for agent fleets
+      </p>
+      <h1 class="max-w-3xl text-balance font-sans text-5xl font-medium lowercase leading-tight md:text-6xl">
+        the model isn't the bottleneck. your shared state is.
+      </h1>
+      <p class="max-w-xl text-pretty text-lp-muted">
+        we timed it: the LLM call is 99.9% of a fleet's wall-clock; coordination adds ~2.4ms.
+        auralis makes shared state explicit, persistent, and never accidental — one brain, every
+        agent, any runtime.
+      </p>
+      <div class="mt-4 flex flex-col items-center gap-3 sm:flex-row">
+        <code
+          class="rounded border border-lp-border bg-lp-surface px-5 py-3 font-mono text-sm text-lp-fg"
+          >$ {clone}</code
+        >
+        <a
+          href="https://github.com/itoonx/Auralis/blob/main/docs/proven.md"
+          class="px-4 py-3 font-mono text-sm text-lp-muted underline-offset-4 hover:text-lp-fg hover:underline"
+          >read the proof →</a
+        >
+      </div>
+      <p class="font-mono text-xs text-lp-muted">
+        running in five commands · no API key — workers reuse your Claude Code login
+      </p>
+    </main>
+  </body>
+</html>

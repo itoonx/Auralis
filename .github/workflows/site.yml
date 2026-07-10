@@ -1,0 +1,62 @@
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/site.yml']
+  pull_request:
+    paths: ['site/**', '.github/workflows/site.yml']
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # design tokens must stay a verbatim copy of dashboard/src/index.css
+      - run: pnpm check-tokens
+      - run: pnpm check
+      - run: pnpm build
+      # every proof number must exist as crawlable HTML text, never canvas-only
+      - name: proof numbers are static HTML
+        run: |
+          grep -q "99.9%" dist/index.html
+          grep -q "2.4ms" dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: site/dist
+
+  # TODO(launch gate): enable after GitHub Pages is configured and the custom
+  # domain is decided (plan §6) — subpath URLs would bake into OG/canonical.
+  # deploy:
+  #   needs: build
+  #   if: github.ref == 'refs/heads/main'
+  #   permissions:
+  #     pages: write
+  #     id-token: write
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #       with: { name: site-dist, path: dist }
+  #     - uses: actions/configure-pages@v5
+  #     - uses: actions/upload-pages-artifact@v3
+  #       with: { path: dist }
+  #     - uses: actions/deploy-pages@v4
+  #       id: deployment
