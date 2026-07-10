@@ -1,6 +1,10 @@
 # auralis
 
 [![CI](https://github.com/itoonx/Auralis/actions/workflows/ci.yml/badge.svg)](https://github.com/itoonx/Auralis/actions/workflows/ci.yml)
+[![site](https://github.com/itoonx/Auralis/actions/workflows/site.yml/badge.svg)](https://github.com/itoonx/Auralis/actions/workflows/site.yml)
+
+**🌐 [itoonx.github.io/Auralis](https://itoonx.github.io/Auralis/)** — the landing page: what auralis
+does, the measured proof, and a replay of a real fleet run.
 
 **The coordination layer for fleets of AI coding agents — a shared, persistent brain and real-time
 coordination that make many agents work as one team instead of many amnesiacs.**
