@@ -130,8 +130,18 @@ subset90 so it's directly comparable to memory's 85/90:
   artifact**, now retracted. **CORRECTED token benefit (verified actual consumption, not file size): memory
   matches true full-context accuracy at ~13-14× fewer tokens (9.1k vs ~125k).** The honest thesis: the memory
   layer is a **token optimization that PRESERVES accuracy** (≈ full-context) at ~1/13 the cost — not "higher
-  accuracy AND cheaper". STILL OPEN: preference wins (0edc2aef, 75832dbd) not yet re-tested with true full
-  ingestion (may also flip). Artifacts: `scratchpad/r1pilot/ans_fulltrue/`, `r1_fulltrue_wf.js`.
+  accuracy AND cheaper". Artifacts: `scratchpad/r1pilot/ans_fulltrue/`, `r1_fulltrue_wf.js`.
+
+- **R1-3 LOOP CLOSED — preference wins re-tested with true full-context (2026-07-10, both ingested >200k):**
+  BOTH flipped to CORRECT under true full ingestion → they were grep-truncation artifacts too. 0edc2aef (Miami
+  hotel): grep-full "I don't know" → true-full recommends oceanfront rooftop-pool/view hotels (aligned) ✅.
+  75832dbd (publications): grep-full RL-only → true-full includes MICCAI/ISBI/medical-imaging (aligned) ✅.
+  **FINAL TALLY of the 4 originally-claimed "memory beats full-context" wins: 3/4 were artifacts** (d84, 0edc2aef,
+  75832dbd all recovered by true-full); only 0a995998 is a genuine memory win. Memory loses c4a1ceb8 to
+  true-full. **Net: DEAD TIE — memory 1 genuine win, true-full 1 genuine win.** The "memory beats full-context"
+  claim is FULLY RETRACTED. **Honest final result: memory ties true full-context on accuracy at ~13× fewer
+  tokens — a lossless-ish ~13× token compression.** That is the real value and the correct baseline for the
+  token-optimization work (shrink the 9.1k memory budget next).
 
 - **R1-3 · three-way delta report** ⚠️ **SUPERSEDED BY THE CORRECTION ABOVE — full-context invalid.** FULL 90×3 (2026-07-10, uniform 90-agent judge panel).
   **memory 84/90 (93.3%) · full-context 81/90 (90.0%) · grep 54/90 (60.0%).** memory ≥ full-context on **89/90**
