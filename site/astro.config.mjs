@@ -9,7 +9,10 @@ const site = process.env.SITE_URL ?? 'https://auralis.example'
 export default defineConfig({
   site,
   output: 'static',
-  integrations: [sitemap()],
+  integrations: [
+    // /og is the OG-image source frame, not a page
+    sitemap({ filter: (page) => !page.includes('/og') }),
+  ],
   vite: {
     plugins: [tailwindcss()],
   },

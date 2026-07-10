@@ -1,7 +1,28 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
 @import "./tokens.css";
+
+/* Latin subsets only — the fontsource index.css would ship every unicode-range
+ * subset into dist (150KB vs 65KB budget). size-adjust'd fallbacks keep the
+ * terminal blocks from reflowing while the mono face loads. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Geist Mono Fallback";
+  src: local("Menlo");
+  size-adjust: 106%;
+}
 
 /* Landing design laws (plan §4): dark-only; grayscale base one step deeper
  * than the studio; exactly ONE accent — "proof green" — reserved for proof
@@ -22,7 +43,7 @@
 
 @theme inline {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: "Geist Mono Variable", "Geist Mono Fallback", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --color-lp-bg: var(--lp-bg);
   --color-lp-surface: var(--lp-surface);
   --color-lp-surface-2: var(--lp-surface-2);

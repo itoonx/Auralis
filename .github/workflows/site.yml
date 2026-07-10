@@ -35,6 +35,10 @@ jobs:
         run: |
           grep -q "99.9%" dist/index.html
           grep -q "2.4ms" dist/index.html
+          grep -q "93.3%" dist/index.html
+          grep -q "−53%" dist/index.html
+      # hard byte budgets — regression fails the build
+      - run: node scripts/check-budget.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: site-dist
