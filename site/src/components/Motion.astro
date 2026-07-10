@@ -41,15 +41,28 @@
         if (href === '#top') {
           e.preventDefault()
           live.scrollTo(0, true)
+          // clear the fragment so the wordmark returns to a clean URL
+          history.replaceState(null, '', location.pathname + location.search)
         } else if (href.length > 1 && document.querySelector(href)) {
           e.preventDefault()
           live.scrollTo(href, true, 'top 72px')
+          // preventDefault also swallows the fragment update — write it back so
+          // copying the URL deep-links straight to this section (#install, …)
+          history.replaceState(null, '', href)
           // preventDefault killed the browser's fragment-focus move — restore
           // it so the skip link actually hands focus to #main
           ;(document.querySelector(href) as HTMLElement | null)?.focus({ preventScroll: true })
         }
       })
     })
+
+    // deep-link on load: with the smoother owning scroll, the browser's native
+    // fragment jump lands in the wrong place (content is transform-offset), so
+    // re-seat it once the smoother is live — instantly, at the same 72px offset
+    if (location.hash.length > 1) {
+      const target = document.querySelector(location.hash)
+      if (target) smoother.scrollTo(target as Element, false, 'top 72px')
+    }
 
     // ---- hero entrance -------------------------------------------------
     // the H1 is the LCP element: transform-only (it must paint immediately);
@@ -117,7 +130,7 @@
     rise('#build ol li', { trigger: '#build ol', stagger: 0.09 })
     rise('#build ol ~ p')
     rise('#mcp .grid > div', { trigger: '#mcp .grid', x: (i) => (i % 2 ? 32 : -32) })
-    rise('#start ol li', { trigger: '#start ol', stagger: 0.09, y: 20 })
+    rise('#install ol li', { trigger: '#install ol', stagger: 0.09, y: 20 })
     rise('#limits .lm-card', { trigger: '#limits', stagger: 0.08, y: 18 })
     rise('#limits .rm-rail', { x: 32 })
     rise('footer > div > *', { trigger: 'footer', stagger: 0.1, y: 16 })
