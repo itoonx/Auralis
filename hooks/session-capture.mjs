@@ -10,7 +10,7 @@
 //   already-durable→ dropped     (git records commits; don't save what the repo already records)
 //
 // Fail-silent by design: a dead oracle or a slow request must never break the user's session.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,7 +19,11 @@ import { fileURLToPath } from "node:url";
 // this the POST below would 401 and be swallowed by its fail-silent catch — the brain would stop learning.
 // ONLY when executed AS the hook (main): importers (vitest, the LME harness via chunkTurn) must not inherit
 // prod secrets — a spawned scratch oracle would demand auth its clients never send (found live: LME 401s).
-const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+// realpath so a symlinked GLOBAL install (~/.claude/hooks → this file) still counts as main — Node resolves
+// import.meta.url through the symlink, argv[1] stays the symlink path, and the two must compare equal.
+const isMain = (() => {
+  try { return !!process.argv[1] && import.meta.url === new URL(`file://${realpathSync(process.argv[1])}`).href; } catch { return false; }
+})();
 if (isMain) {
   try { process.loadEnvFile(fileURLToPath(new URL("../.env.oracle", import.meta.url))); } catch { /* no .env.oracle — fine */ }
 }
