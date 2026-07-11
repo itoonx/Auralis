@@ -17,11 +17,18 @@ For the host path and the Claude Code integrations (§4) you'll also want:
 | **Claude Code, logged in** | fleet workers and MCP tools reuse your login — no API key | `claude --version` |
 | *(optional)* Python 3.10+ | host-GPU semantic sidecar (Apple silicon MPS — ~10× faster embeds than the in-Docker one) | `python3 --version` |
 
-## 1 · One command
+## 1 · One line
 
 ```bash
-git clone https://github.com/itoonx/Auralis && cd Auralis
-./install.sh                           # or: ./install.sh --no-semantic
+curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | bash
+```
+
+No clone needed — the script fetches the repo itself (into `~/auralis`; override with `AURALIS_HOME=…`)
+and hands off to the fresh copy inside it. Variants:
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --no-semantic   # lexical-only (skips the ~5GB torch image)
+git clone https://github.com/itoonx/Auralis && cd Auralis && ./install.sh   # classic, same result
 ```
 
 **Everything runs in Docker** — the dashboard builds inside its image, semantic recall runs as the `bge`

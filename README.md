@@ -59,12 +59,12 @@ so every process, model, and machine shares them.
 **Prerequisites:** a running Docker daemon — that's it for the platform. (For the fleet/MCP tools:
 Node 20+ · pnpm · **Claude Code logged in** — workers reuse your login, no API key needed.)
 
-**1 · Install & start — one command, everything in Docker** *(auth, semantic recall, dashboard — all
-automated and idempotent; full walkthrough: [docs/getting-started.md](docs/getting-started.md))*
+**1 · Install & start — one line, everything in Docker** *(clones itself to `~/auralis`, then: auth,
+semantic recall, dashboard — all automated and idempotent; walkthrough: [docs/getting-started.md](docs/getting-started.md))*
 
 ```bash
-git clone <this repo> && cd auralis
-./install.sh                      # studio → http://localhost:47780 · brain API → :47778
+curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | bash
+# studio → http://localhost:47780 · brain API → :47778 · lexical-only: | bash -s -- --no-semantic
 ```
 
 **2 · Analyse any repo**

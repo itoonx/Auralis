@@ -1,18 +1,43 @@
 #!/usr/bin/env bash
 # auralis installer — Docker-only. The host needs docker (daemon running) and nothing else:
 # the dashboard builds inside its image, and semantic recall runs as the `bge` compose service.
-#   ./install.sh                # full install (semantic recall included)
-#   ./install.sh --no-semantic  # lexical-only (smaller: skips the ~5GB torch image + 4.6GB weights)
-# Idempotent: re-run any time; secrets and images are only created when missing.
+#
+#   curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | bash
+#   curl -fsSL .../install.sh | bash -s -- --no-semantic     # lexical-only (skips ~5GB torch image)
+#   ./install.sh                                             # same thing, from inside a clone
+#
+# Piped runs clone the repo into $AURALIS_HOME (default ~/auralis) and hand off to the fresh copy of
+# this script inside it. Idempotent: re-run any time; secrets/clone/images are only created when missing.
 # For the host-GPU (Apple silicon MPS) semantic path use `node bin/auralis.mjs setup` instead.
 set -euo pipefail
-cd "$(dirname "$0")"
-
-SEMANTIC=1
-for a in "$@"; do [ "$a" = "--no-semantic" ] && SEMANTIC=0; done
 
 say()  { printf '\033[1m%s\033[0m\n' "$*"; }
 fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
+
+# ── 0 · bootstrap: run from anywhere — fetch the repo if we're not already inside it ────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo .)"
+if [ -f "$SCRIPT_DIR/docker-compose.yml" ] && [ -f "$SCRIPT_DIR/oracle-lite/server.ts" ]; then
+  cd "$SCRIPT_DIR"
+else
+  REPO="${AURALIS_REPO:-https://github.com/itoonx/Auralis}"
+  DEST="${AURALIS_HOME:-$HOME/auralis}"
+  say "⓪ fetching auralis → $DEST"
+  if [ -f "$DEST/docker-compose.yml" ]; then
+    echo "   ✅ already present — re-using (cd $DEST && git pull to update)"
+  elif command -v git >/dev/null 2>&1; then
+    git clone --depth 1 "$REPO" "$DEST"
+  elif command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
+    mkdir -p "$DEST"
+    curl -fsSL "${REPO%/}/tarball/main" | tar -xz --strip-components=1 -C "$DEST"
+  else
+    fail "need git (or curl+tar) to fetch the repo"
+  fi
+  # hand off to the freshly fetched copy — a stale curl'd script still installs the current version
+  exec bash "$DEST/install.sh" "$@"
+fi
+
+SEMANTIC=1
+for a in "$@"; do [ "$a" = "--no-semantic" ] && SEMANTIC=0; done
 
 # ── 1 · prerequisites: docker only ──────────────────────────────────────────────────────────────────
 say "① prerequisites"
