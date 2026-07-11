@@ -24,12 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | ba
 ```
 
 No clone needed — the script fetches the repo itself (into `~/auralis`; override with `AURALIS_HOME=…`)
-and hands off to the fresh copy inside it. Variants:
-
-```bash
-curl -fsSL .../install.sh | bash -s -- --no-semantic   # lexical-only (skips the ~5GB torch image)
-git clone https://github.com/itoonx/Auralis && cd Auralis && ./install.sh   # classic, same result
-```
+and hands off to the fresh copy inside it. Already cloned? `./install.sh` from the repo does the same.
 
 **Everything runs in Docker** — the dashboard builds inside its image, semantic recall runs as the `bge`
 compose service; the host needs docker and nothing else. The script is **idempotent** (re-run any time)

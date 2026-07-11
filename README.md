@@ -64,7 +64,7 @@ semantic recall, dashboard — all automated and idempotent; walkthrough: [docs/
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | bash
-# studio → http://localhost:47780 · brain API → :47778 · lexical-only: | bash -s -- --no-semantic
+# studio → http://localhost:47780 · brain API → :47778
 ```
 
 **2 · Analyse any repo**
