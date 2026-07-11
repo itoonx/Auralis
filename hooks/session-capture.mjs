@@ -14,12 +14,13 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Carry the same ORACLE_TOKEN / ORACLE_API_URL the container reads: one repo .env feeds both the daemon
-// (via compose) and this host-side hook, so once auth is on the hook still authenticates. Without this the
-// POST below would 401 and be swallowed by its fail-silent catch — the brain would stop learning, silently.
-// Skip under vitest: this module is imported for its pure functions there, and loading prod secrets into
-// the test process would make the tests' scratch oracle demand auth and break the suite.
-if (!process.env.VITEST) {
+// Carry the same ORACLE_TOKEN / ORACLE_API_URL the container reads: one repo .env.oracle feeds both the
+// daemon (via compose) and this host-side hook, so once auth is on the hook still authenticates. Without
+// this the POST below would 401 and be swallowed by its fail-silent catch — the brain would stop learning.
+// ONLY when executed AS the hook (main): importers (vitest, the LME harness via chunkTurn) must not inherit
+// prod secrets — a spawned scratch oracle would demand auth its clients never send (found live: LME 401s).
+const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+if (isMain) {
   try { process.loadEnvFile(fileURLToPath(new URL("../.env.oracle", import.meta.url))); } catch { /* no .env.oracle — fine */ }
 }
 

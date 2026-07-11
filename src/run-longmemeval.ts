@@ -340,16 +340,27 @@ async function main() {
   const kids: ChildProcess[] = [];
   const env: Record<string, string | undefined> = { ...process.env, ORACLE_PORT: String(PORT), ORACLE_DB: `${SCRATCH}/brain.sqlite`, ORACLE_RESET: "1", ORACLE_API_URL: BASE };
   if (process.env.AURALIS_SEMANTIC === "1") {
-    const embedPort = 47798;
-    kids.push(spawn("pnpm", ["exec", "tsx", "src/embed-sidecar.ts"], { env: { ...process.env, EMBED_PORT: String(embedPort) }, stdio: "ignore" }));
-    for (let i = 0; i < 180; i++) {
-      try { if ((await fetch(`http://localhost:${embedPort}/health`, { signal: AbortSignal.timeout(2000) })).ok) break; } catch { /* not yet */ }
-      await new Promise((r) => setTimeout(r, 1000));
+    // LME_EMBED_URL: use an ALREADY-RUNNING embed service (e.g. the python bge-sidecar — dense+sparse+
+    // reranker, which this harness can't spawn) instead of the hardcoded Node MiniLM sidecar.
+    if (process.env.LME_EMBED_URL) {
+      env.ORACLE_EMBED_URL = process.env.LME_EMBED_URL;
+    } else {
+      const embedPort = 47798;
+      kids.push(spawn("pnpm", ["exec", "tsx", "src/embed-sidecar.ts"], { env: { ...process.env, EMBED_PORT: String(embedPort) }, stdio: "ignore" }));
+      for (let i = 0; i < 180; i++) {
+        try { if ((await fetch(`http://localhost:${embedPort}/health`, { signal: AbortSignal.timeout(2000) })).ok) break; } catch { /* not yet */ }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      env.ORACLE_EMBED_URL = `http://localhost:${embedPort}`;
     }
-    env.ORACLE_EMBED_URL = `http://localhost:${embedPort}`;
   }
-  rmSync(`${SCRATCH}/brain.sqlite`, { force: true });
-  kids.push(spawn("bun", ["run", "oracle-lite/server.ts"], { env: env as any, stdio: "ignore" }));
+  // LME_ORACLE_EXTERNAL=1: the caller pre-started the oracle at LME_PORT (e.g. to keep its logs — the
+  // spawned one is stdio:ignore). Skip the rm+spawn: rmSync would unlink the DB under the running oracle's
+  // WAL and every write after that dies with SQLITE_IOERR_VNODE (found live). Caller owns db hygiene.
+  if (process.env.LME_ORACLE_EXTERNAL !== "1") {
+    rmSync(`${SCRATCH}/brain.sqlite`, { force: true });
+    kids.push(spawn("bun", ["run", "oracle-lite/server.ts"], { env: env as any, stdio: "ignore" }));
+  }
   const stop = () => kids.forEach((k) => { try { k.kill(); } catch { /* noop */ } });
   try {
     for (let i = 0; i < 60 && !(await oracleReachable(BASE)); i++) await new Promise((r) => setTimeout(r, 500));

@@ -86,6 +86,52 @@ function uninstallSchedule() {
   console.log("✓ daily backup schedule removed");
 }
 
+// -- bge-sidecar: the semantic embed+rerank service (src/bge-sidecar.py) -------------------------------
+// A HOST process, not a compose service: it needs Apple-GPU (MPS) which containers can't reach. The oracle
+// container reaches it via host.docker.internal (ORACLE_EMBED_URL/ORACLE_RERANK_URL in .env.oracle). If it's
+// down the oracle degrades per-call to its builtin embedder — counted in /api/stats embed_fallbacks, so a
+// rising counter is the "sidecar is down" alarm. KeepAlive restarts it on crash and on reboot.
+const SIDECAR_PLIST = join(homedir(), "Library", "LaunchAgents", "dev.auralis.bge-sidecar.plist");
+const SIDECAR_PY = join(ROOT, ".auralis-out", "venv-bge", "bin", "python");
+
+function installSidecar() {
+  if (!existsSync(SIDECAR_PY)) return fail(`venv not found: ${SIDECAR_PY}  (python3 -m venv .auralis-out/venv-bge && .auralis-out/venv-bge/bin/pip install FlagEmbedding)`);
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.auralis.bge-sidecar</string>
+  <key>ProgramArguments</key><array>
+    <string>${SIDECAR_PY}</string>
+    <string>${join(ROOT, "src", "bge-sidecar.py")}</string>
+  </array>
+  <key>WorkingDirectory</key><string>${ROOT}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${join(ROOT, ".auralis-out", "bge-sidecar.log")}</string>
+  <key>StandardErrorPath</key><string>${join(ROOT, ".auralis-out", "bge-sidecar.log")}</string>
+</dict></plist>
+`;
+  mkdirSync(dirname(SIDECAR_PLIST), { recursive: true });
+  writeFileSync(SIDECAR_PLIST, plist);
+  sh(["launchctl", "unload", SIDECAR_PLIST], { stdio: "ignore" }); // idempotent reinstall
+  if (sh(["launchctl", "load", SIDECAR_PLIST]).status !== 0) return fail("launchctl load failed");
+  console.log(`✓ bge-sidecar autostart installed (KeepAlive) → ${SIDECAR_PLIST}`);
+}
+
+function uninstallSidecar() {
+  sh(["launchctl", "unload", SIDECAR_PLIST], { stdio: "ignore" });
+  if (existsSync(SIDECAR_PLIST)) unlinkSync(SIDECAR_PLIST);
+  console.log("✓ bge-sidecar autostart removed (running instance stopped)");
+}
+
+async function sidecarStatus() {
+  try {
+    const r = await (await fetch("http://127.0.0.1:47783/health", { signal: AbortSignal.timeout(10_000) })).json();
+    console.log(`  bge-sidecar  ${r.ok ? "✅" : "✗"} ${r.model ?? ""} dim=${r.dim ?? "?"} sparse=${!!r.sparse}`);
+  } catch { console.log("  bge-sidecar  ✗ unreachable on :47783"); }
+  console.log(`  autostart    ${existsSync(SIDECAR_PLIST) ? "✅ installed" : "✗ not installed (auralis sidecar --install)"}`);
+}
+
 async function start() {
   const share = rest.includes("--share");
   // studio ships the dashboard's production build — build it if missing (host-build keeps the image tiny).
@@ -137,6 +183,8 @@ async function doctor() {
   checks.push(["reboot: orbstack start-at-login", orbLogin]);
   checks.push(["backup: sqlite3 present", sh(["sqlite3", "--version"], { stdio: "ignore" }).status === 0]);
   checks.push(["backup: daily schedule installed", existsSync(PLIST)]);
+  checks.push(["bge-sidecar reachable", await health("http://127.0.0.1:47783")]);
+  checks.push(["bge-sidecar autostart installed", existsSync(SIDECAR_PLIST)]);
   for (const [name, ok] of checks) console.log(`  ${ok ? "✅" : "✗"} ${name}`);
   const critical = checks.slice(0, 2).every(([, ok]) => ok);
   if (!critical) fail("docker or compose file missing");
@@ -155,6 +203,11 @@ switch (cmd) {
     else if (rest.includes("--uninstall")) uninstallSchedule();
     else backup();
     break;
+  case "sidecar":
+    if (rest.includes("--install")) installSidecar();
+    else if (rest.includes("--uninstall")) uninstallSidecar();
+    else await sidecarStatus();
+    break;
   case "doctor": await doctor(); break;
   default:
     console.log("auralis — production stack CLI\n");
@@ -165,6 +218,8 @@ switch (cmd) {
     console.log("  auralis restart [svc]");
     console.log("  auralis backup            WAL-safe brain snapshot now (keeps last 14)");
     console.log("  auralis backup --install  schedule a daily backup (launchd, 04:00)");
+    console.log("  auralis sidecar           bge-sidecar (semantic embed+rerank) health");
+    console.log("  auralis sidecar --install autostart it via launchd (KeepAlive, reboot-safe)");
     console.log("  auralis doctor            environment + reboot/backup readiness");
     process.exit(cmd ? 1 : 0);
 }

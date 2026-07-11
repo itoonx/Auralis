@@ -445,9 +445,18 @@ function claimIn(scope: string): Map<string, string> {
 // defence for anything beyond that (tunnels, LAN).
 const TOKEN = process.env.ORACLE_TOKEN;
 const JWT_SECRET = process.env.ORACLE_JWT_SECRET;
+// Optional cross-encoder rerank stage (…→ wide top-N → rerank → top-k). Point at a sidecar speaking
+// POST /rerank {query,docs:[{id,text}]} → {scores:[{id,score}]} (src/rerank-sidecar.ts or src/bge-sidecar.py).
+// Per-request opt-in (`rerank=1`, ~0.5s) — recall hooks stay fast by default. Fail-open + counted.
+const RERANK_URL = process.env.ORACLE_RERANK_URL;
+let rerankOk = 0, rerankFail = 0;
 
 const server = Bun.serve({
   port: PORT,
+  // Bun's default idleTimeout is 10s — /api/embed-settle legitimately blocks for minutes on a big semantic
+  // ingest (LME: thousands of queued chunks), and Bun was closing the socket mid-wait ("other side closed"
+  // on the client, no server crash). 255 is Bun's max.
+  idleTimeout: 255,
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -474,7 +483,7 @@ const server = Bun.serve({
       const u = (project
         ? db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE project = ? AND superseded_by IS NULL").get(project)
         : db.query("SELECT COALESCE(SUM(times_used),0) AS u, COALESCE(SUM(retrieved_count),0) AS s FROM docs WHERE superseded_by IS NULL").get()) as { u: number; s: number };
-      return Response.json({ count: row.c, edges: e.c, nodes: n.c, cited: u.u, seen: u.s, vectors: vectorsOn, embedder, semantic_embeds: semEmbedOk, embed_fallbacks: semEmbedFallback, embed_queue_depth: embedQ.length, embed_queue_ok: qEmbedOk, embed_queue_failed: qEmbedFail });
+      return Response.json({ count: row.c, edges: e.c, nodes: n.c, cited: u.u, seen: u.s, vectors: vectorsOn, embedder, semantic_embeds: semEmbedOk, embed_fallbacks: semEmbedFallback, embed_queue_depth: embedQ.length, embed_queue_ok: qEmbedOk, embed_queue_failed: qEmbedFail, rerank_ok: rerankOk, rerank_fail: rerankFail });
     }
 
     // Read-after-write for the vector lane (R2a): a caller ingesting a burst then searching vectors POSTs
@@ -930,7 +939,27 @@ const server = Bun.serve({
         };
       });
 
-      const top = scored.sort((a, b) => b.score - a.score).slice(0, limit);
+      const ordered = scored.sort((a, b) => b.score - a.score);
+      let top = ordered.slice(0, limit);
+      // Cross-encoder rerank (rerank=1 + ORACLE_RERANK_URL): score the query against a WIDE pool (up to 100)
+      // and keep the reranker's top-k — measured on the paraphrase bench this lifts recall@1 46%→83-92%.
+      // Fail-OPEN: any sidecar error keeps the hybrid order — and is counted, never silent.
+      if (url.searchParams.get("rerank") === "1" && RERANK_URL) {
+        const pool = ordered.slice(0, 100);
+        try {
+          const res = await fetch(`${RERANK_URL}/rerank`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ query: q, docs: pool.map((c) => ({ id: c.id, text: String(c.doc.content).slice(0, 2000) })) }),
+            signal: AbortSignal.timeout(20_000),
+          });
+          if (!res.ok) throw new Error(`rerank ${res.status}`);
+          const ranked = ((await res.json()) as { scores: { id: string }[] }).scores ?? [];
+          const poolById = new Map(pool.map((c) => [c.id, c]));
+          const rTop = ranked.map((s) => poolById.get(String(s.id))).filter(Boolean).slice(0, limit);
+          if (rTop.length) { top = rTop as typeof top; rerankOk++; }
+        } catch (e) { rerankFail++; console.error("rerank failed (fail-open, hybrid order kept):", String(e).slice(0, 100)); }
+      }
       const nowIso = new Date().toISOString();
       for (const r of top) touchStmt.run(nowIso, r.id); // recency reinforcement + observability
       // M2 adjacency expansion (expand=1): the answer to "what came after X" rarely shares X's words —
