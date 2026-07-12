@@ -275,6 +275,20 @@ async function doctor() {
   checks.push(["backup: daily schedule installed", existsSync(PLIST)]);
   checks.push(["bge-sidecar reachable", await health("http://127.0.0.1:47783")]);
   checks.push(["bge-sidecar autostart installed", existsSync(SIDECAR_PLIST)]);
+  // Multi-runner config (prd-multi-runner M2): every configured vendor must have its billing key present.
+  const CFG = join(ROOT, "auralis.config.json");
+  if (existsSync(CFG)) {
+    try {
+      const runners = JSON.parse(readFileSync(CFG, "utf8")).runners ?? {};
+      const KEYS = { gpt: ["OPENAI_API_KEY"], glm: ["GLM_API_KEY", "ZHIPU_API_KEY"], "api-compat": ["AURALIS_RUNNER_API_KEY"] };
+      const vendors = [...new Set(Object.values(runners).flat().map((s) => String(s).split(":")[0]))];
+      for (const v of vendors) {
+        if (v === "claude") continue;
+        const need = KEYS[v] ?? [];
+        checks.push([`runner ${v}: key set`, need.some((k) => !!process.env[k])]);
+      }
+    } catch { checks.push(["auralis.config.json parses", false]); }
+  }
   for (const [name, ok] of checks) console.log(`  ${ok ? "✅" : "✗"} ${name}`);
   const critical = checks.slice(0, 2).every(([, ok]) => ok);
   if (!critical) fail("docker or compose file missing");

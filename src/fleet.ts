@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { AgenticEnvironment } from "@mozaik-ai/core";
 import { oracleReachable, type MemoryAdapter } from "./memory";
-import { ClaudeCodeRunner } from "./runner";
+import { makeRunnerFor, resolveRunnerSpec, brainToolsFromAdapter } from "./runners";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { buildLevels } from "./dag";
@@ -81,7 +81,9 @@ export async function resolveTasks(projectDir: string, goal: string, planTurns: 
         dependsOn: Array.isArray(x.dependsOn) ? x.dependsOn.map(String) : [],
       }));
   }
-  const planner = new ClaudeCodeRunner({ cwd: projectDir, maxTurns: planTurns, onStep });
+  // The planner's runtime is selectable too (AURALIS_PLANNER_RUNNER / config) — decomposition is a
+  // text-out task, so any vendor works; default stays Claude.
+  const planner = makeRunnerFor(resolveRunnerSpec("planner"), { cwd: projectDir, maxTurns: planTurns, onStep });
   return build ? planBuild(planner, goal) : planGoal(planner, goal);
 }
 
@@ -146,7 +148,12 @@ export async function runFleet(
       sink(tool, target);
       emit?.("trace", id, `${id} → ${tool}${target ? ` ${target}` : ""}`, { nodeId: id, refs: target ? [target] : undefined });
     };
-    const w = new Worker(id, env, new ClaudeCodeRunner({ cwd: cfg.projectDir, maxTurns: cfg.maxTurns, brain, claim, build: cfg.build, onStep }), !!brain, cfg.build);
+    // Which model runs this worker (M2): claude keeps the Agent SDK + MCP brain; any other vendor gets
+    // the ToolLoopRunner with the native BrainTools bridge — same tool names, same counters, same claims.
+    const spec = resolveRunnerSpec("worker");
+    const brainTools = cfg.workerPull && spec.vendor !== "claude" ? brainToolsFromAdapter(adapter, cfg.project, live, emit, id) : undefined;
+    const runner = makeRunnerFor(spec, { cwd: cfg.projectDir, maxTurns: cfg.maxTurns, mcpBrain: brain, brainTools, claim, build: cfg.build, onStep });
+    const w = new Worker(id, env, runner, !!(brain || brainTools), cfg.build);
     w.join(env);
     return w;
   };
