@@ -119,7 +119,7 @@ policy* (auto-pick by difficulty) stays out of scope until these static tiers ar
 | Key/billing confusion | doctor check per preset; runner keys documented as `.env` (billing), never `.env.oracle` |
 | Silent provider degradation | provider errors are returned as result text → Critic rejects → not captured (the poison-gate already built for this) |
 
-## Phase 2 — the society brainstorms (M5–M7)
+## Phase 2 — the society brainstorms (M5–M8)
 
 ### M5 · Model-per-role (~1 day)
 The seams already exist; this milestone just gives each one a runner knob:
@@ -137,9 +137,17 @@ The seams already exist; this milestone just gives each one a runner knob:
 **Gate:** the user's exact scenario runs: Fable plans → GPT critic grades → Claude reviewer bug-hunts a
 build output — three vendors in one run, visible per-role in the studio replay.
 
-### M6 · `/brainstorm` — the multi-model idea panel (~1.5–2 days)
+### M6 · `/brainstorm` — the multi-model idea panel (~1.5–2 days) — **SHIPPED 2026-07-13**
 **The user-facing centerpiece:** a slash command that spins up a panel of models to think together and
 doesn't stop until the outcome is *learned*.
+
+> **Status:** shipped and proven live (`claude + gpt`; `glm` when its Zhipu balance is topped up).
+> Delivered beyond spec: **preflight** (a paid provider with no key/credit is excluded before round 0,
+> loudly, and the run aborts if none survive), **panel resilience** (one dead provider drops without
+> killing the round — counted, never silent), and the Claude panelist runs on the **Claude Code CLI
+> login** by default. Still open: the `brainstorm` MCP tool (slash command works today), and the cost
+> guard (deferred to a `max_tokens` cap + truncation flag). The panel is the *simultaneous* engine — M8
+> evolves it into an adversarial one.
 
 **Shortcut that reorders the plan:** brainstorming is **tool-less** (thinking, not exploring files) —
 so the engine needs only `ApiRunner` (exists) + the Claude runner, NOT the M1 ToolLoopRunner. M6 can
@@ -185,6 +193,57 @@ The spike answers, against the M0 conformance suite: (a) can ToolLoopRunner be b
 (b) does GLM work through the DeepSeek-style base-URL override, or does it need a custom `Endpoint`?
 **Do not migrate on vibes** — whichever loop passes conformance cheaper wins.
 
+### M8 · The dialectic — crystallize what survives, not what agrees (~2–3 days)
+
+**North Star.** The system's output is **not "an answer"** — it is a *claim that carries the scars of
+what attacked it* (**calibrated**), *written to the brain to be superseded later* (**persistent**), and
+*used as the ground the next debate stands on* (**compounding**). The valuable part of a crystal is the
+**scar record, not the conclusion.** Compounding is the moat stateless debate can't have: settled,
+battle-tested premises accumulate, so the fleet gets *harder to fool over time*.
+
+**Why "one spirit, everyone agrees" is the wrong target.** The whole reason to run N models is that
+their errors are independent; optimizing for shared-spirit consensus throws that away (correlated bias,
+groupthink). **Rule: share the WHAT (facts + goal, loaded from the brain via `mcp__oracle__search`),
+never the HOW (method + answer).** Consensus that was never attacked is theatre.
+`shared ground · adversarial path · crystallized end` — anchor on the same facts, argue independently,
+crystallize only what survived.
+
+**The process — 5 stages, roles SEPARATED (or it collapses into a forum):**
+```
+propose   (parallel, independent — no cross-talk, anti-anchoring)
+challenge (a NON-author attacks the single weakest point — told to REFUTE, must name a concrete
+           failure scenario, default "refuted" if unsure)
+defend    (the author rebuts or concedes)
+judge     (a NON-author rules PROCEDURALLY: did the defense answer the attack? — NOT "which idea is best")
+synthesize the survivor + graft the strengths of the sunk → LEARN (scar record, not just the verdict)
+```
+Winner = highest **survivability**, not most votes. **There is no vote.** Invariant:
+**author ≠ challenger ≠ judge** on the same proposal. Challenger = `critic` role, judge = `reviewer`
+role — both already resolve per-model (M5's `AURALIS_CRITIC_RUNNER` / `AURALIS_REVIEWER_RUNNER`); make
+the judge a **cross-family** referee of the *argument*, not a decider of *truth*.
+
+**The 5 holes in the compounding loop, and their plugs** (compounding cuts both ways — a wrong crystal
+poisons *every* future debate, so each plug is load-bearing):
+| Hole | Plug |
+|---|---|
+| A wrong crystal poisons every future debate | Crystals are **provisional**: tag `margin` (settled vs tentative); reuse the brain's **`supersede`** so a contradicting crystal overrides *with provenance*, never a silent delete |
+| A crystal without its scar record is just an answer | LEARN stores **attacks-survived + concessions + margin + who-challenged/judged**, not only the conclusion |
+| Shared ground can't be wrong if it can't be challenged | One challenger **red-teams the PREMISE**, not a proposal: "what assumption in the task itself is false?" |
+| Judge has substantive bias | Judge rules **procedurally** (was the defense responsive?); truth is decided by *what survives*, the judge only certifies the survival was legitimate |
+| No attack landed | **Suspicious, not safe** — force a *steelman-the-opposite* pass before crystallizing; only then crystallize high-margin |
+
+**Two modes — this is where the forum idea lives (scoped to where it helps):**
+- **`converge`** (default): the dialectic above → the best *defensible* answer. For decisions / design / bug-hunts.
+- **`diverge`**: forum-style cross-talk, **no judge, no winner** → a ranked idea list. For naming / product-direction / ideation, where cross-pollination genuinely spawns hybrids.
+
+**Reuse:** `src/dialectic.ts` (pure engine, scripted-runner tests, exactly like `brainstorm.ts`) +
+`preflightPanel` + `runSafe` resilience + LEARN + config. Assignment = **derangement** (pure, testable —
+nobody attacks or judges their own proposal).
+
+**Gate (do NOT ship on vibes):** A/B — dialectic vs flat-panel vs single-strong-model on a real task set,
+scored by a held-out judge or ground truth. If it doesn't beat the panel *on substance*, the panel is
+already good enough — don't pay the complexity.
+
 ## Config surface — one place to say which model runs which layer
 
 mozaik provides the *mechanism* (model is a per-call parameter); the *mapping* is ours:
@@ -213,13 +272,14 @@ add after ToolLoopRunner settles) · cross-machine claim TTL/lease (separate roa
 free-form unbounded agent chat (every conversation here is round-limited with a structured output — the
 bus is for coordination, not vibes).
 
-## Sequence (updated 2026-07-12 — spike promoted, /brainstorm decoupled from M1)
+## Sequence (updated 2026-07-13 — M6 shipped, M8 dialectic added)
 
 ```
 M0 conformance ▶ M0.5 mozaik spike ▶ M1 ToolLoopRunner ▶ M3 hetero fleet ▶ M4 bench
                         │
-                        └▶ M2 config surface ▶ M6 /brainstorm  (tool-less — no M1 needed)
-                                             ▶ M5 model-per-role
+                        └▶ M2 config surface ▶ M6 /brainstorm ✓SHIPPED ▶ M8 dialectic
+                                             ▶ M5 model-per-role ─────────────┘ (M8 needs critic+reviewer roles)
 ```
-Fastest path to the user-visible win: **M0 → M2 → M6** (~2.5 days) puts `/brainstorm` with a
-three-vendor panel in hand before the tool-loop work even finishes.
+Fastest path to the user-visible win: **M0 → M2 → M6** — *done*: `/brainstorm` with a live `claude+gpt`
+panel is in hand. Next value step is **M5 → M8**: give critic/reviewer their own models, then turn the
+simultaneous panel into the adversarial dialectic (crystallize what survives, not what agrees).
