@@ -11,6 +11,7 @@ try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* no 
 // the CLI login. Opt back into the API key with AURALIS_BRAINSTORM_ANTHROPIC_API=1 (headless/CI, no CLI login).
 if (process.env.AURALIS_BRAINSTORM_ANTHROPIC_API !== "1") delete process.env.ANTHROPIC_API_KEY;
 import { brainstorm, type Panelist } from "./brainstorm";
+import { preflightPanel } from "./brainstorm-preflight";
 import { parseSpec, keyFor, PRESETS, loadConfig, type RunnerSpec } from "./runners";
 import { ApiRunner } from "./runner";
 import { OracleAdapter } from "./memory";
@@ -44,6 +45,16 @@ function panelist(spec: RunnerSpec): Panelist {
   return { name, run: async (prompt) => (await runner.run(prompt)).result };
 }
 
+// Liveness/credit probe for preflight: Claude uses the CLI login (no pay-per-call balance risk), so it's
+// assumed live and any auth issue surfaces in round 0. A paid provider must have a key AND answer a tiny
+// call — a 429 "out of credits" / 401 throws HERE, before the real brainstorm spends anything.
+async function liveProbe(spec: RunnerSpec): Promise<void> {
+  if (spec.vendor === "claude") return;
+  const key = keyFor(spec);
+  if (!key.ok) throw new Error(`no key (${key.missing?.join(" / ")})`);
+  await panelist(spec).run("Reply with the single word: ok"); // ponytail: no max_tokens yet — the terse prompt keeps it cheap
+}
+
 function panelSpecs(): { panel: RunnerSpec[]; synth: RunnerSpec } {
   const cfg = loadConfig();
   const rawPanel = (process.env.AURALIS_BRAINSTORM_PANEL?.split(",").map((s) => s.trim()).filter(Boolean)) ?? cfg.runners?.brainstorm ?? ["claude"];
@@ -57,9 +68,18 @@ async function main() {
   if (!topic) { console.error('usage: pnpm brainstorm "<topic or design question>"'); process.exit(1); }
   const rounds = Number(process.env.AURALIS_BRAINSTORM_ROUNDS ?? loadConfig().brainstorm?.rounds ?? 3);
   const { panel, synth } = panelSpecs();
-  console.error(`🧠 brainstorm: ${panel.map((s) => s.model ?? s.vendor).join(" · ")} → synth ${synth.model ?? synth.vendor} · ≤${rounds} rounds\n`);
 
-  const result = await brainstorm(topic, panel.map(panelist), panelist(synth), {
+  // Preflight — a paid provider with no key or no balance must not start work, and must not fail silently.
+  console.error(`🔎 preflight — each paid provider needs a key + balance before we start:`);
+  const pf = await preflightPanel(panel, synth, liveProbe, (l) => console.error(l));
+  if (!pf.panel.length || !pf.synth) {
+    console.error(`\n✗ no usable panelists — every provider failed preflight (keys / credits). Nothing to brainstorm.`);
+    process.exit(1);
+  }
+  if (pf.excluded.length) console.error(`⚠ running without: ${pf.excluded.map((e) => e.name).join(", ")} — fix keys/credits to include them`);
+  console.error(`🧠 brainstorm: ${pf.panel.map((s) => s.model ?? s.vendor).join(" · ")} → synth ${pf.synth.model ?? pf.synth.vendor} · ≤${rounds} rounds\n`);
+
+  const result = await brainstorm(topic, pf.panel.map(panelist), panelist(pf.synth), {
     rounds,
     onEvent: (kind, _name, human) => console.error(kind === "dropped" ? `  ⚠ ${human}` : `  ${human}`),
   });
