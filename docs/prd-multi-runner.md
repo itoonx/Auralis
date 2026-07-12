@@ -259,6 +259,42 @@ buries). Fix, **without installing a truth-oracle**:
 > from author to judge instead of removing it. Evidence-gating keeps judging procedural but moves the
 > truth-check to an **external, author-independent test**.
 
+**Mechanics** (drilled per-topic by the claude+gpt panel, 2026-07-13 — crystals in the `m8-design`
+project). All three converged, independently, on one rule that is now load-bearing for the whole design:
+**no gate may rest on an in-the-moment judgment — every gate anchors to an external, pre-committed
+signal** (an event log, a track record, a certified anchor — never "what the room thinks right now").
+
+- **Provisional lane — evidence-contact signed margin (NO wall clock).** Each provisional crystal
+  carries a signed margin `M` that moves **only on evidence-contact events**: a logged *contradiction*,
+  a *downstream failure* (something built on it broke), or a *user flag*. `M` under the reopen line →
+  reopens; confirmations ratchet it back. No event ⇒ no movement, ever — an untouched-but-correct
+  crystal never rots; a repeatedly-contradicted one falls fast. *Anti-thrash:* hysteresis (reopen line
+  below promote line), per-trigger cooldown, same-outcome ratchet. *Anti-calcification:* promotion to
+  settled is **explicit, multi-source, logged** — never by neglect. (Rejected: time-based decay — the
+  clock is the *engine* of both failure modes: too slow = calcify, too fast = thrash.) Known hole:
+  an event that never gets logged is de-facto calcification — instrument the missed-event rate.
+- **Test integrity — anchor-pair calibration.** Before a challenger's falsifying test may gate a claim,
+  it must run against a **pre-agreed control pair**: a certified-true anchor and a certified-false one.
+  Admitted only if it *passes the positive and fails the negative* — an impossible bar flunks the
+  positive, a strawman clears the negative; one instrument kills both gamings. Threshold is
+  **pre-registered before the challenger sees the claim**; anchors drawn **cut-and-choose** so they
+  can't be tailored. The regress terminates at *ground truth*, not at another reviewer. (Rejected:
+  adversarial meta-review — a reviewer of the test needs its own reviewer; it relocates the regress.)
+  Known hole: **anchor governance is the new single point of failure** — anchors must bracket the
+  claim's regime (same domain/difficulty), rotate so they can't be memorized, ≥2 pairs.
+- Both build on machinery the brain already has: the event log / audit ledger feeds evidence-contact;
+  settled past crystals with known outcomes are the anchor pool.
+
+**Pilot-only (NOT committed): evidence-poor adoption by staking.** For claims with no falsifying test
+(design taste, values, forecasts): an agent spends **scarce, calibration-scored credit** to stake a
+crystal as ground for **one scoped decision** (expiry-bound charter, least-cost-reversible execution,
+cheap-proxy tripwire that forces re-stake). Expiry defeats the dumping ground; paying with track-record
+credit defeats winner-equals-most-fluent. **Why pilot-only:** the credit economy is a big build with a
+circularity at its core — scoring "was right before" in a domain that *by definition* lacks ground truth
+depends entirely on proxy quality (the panel labeled this HYPOTHESIS itself). Run it on a small set of
+reversible design decisions, log every stake + tripwire outcome, and audit whether credit tracks
+being-right **before** widening the lane.
+
 **Two modes — this is where the forum idea lives (scoped to where it helps):**
 - **`converge`** (default): the dialectic above → the best *defensible* answer. For decisions / design / bug-hunts.
 - **`diverge`**: forum-style cross-talk, **no judge, no winner** → a ranked idea list. For naming / product-direction / ideation, where cross-pollination genuinely spawns hybrids.
