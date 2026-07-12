@@ -7,7 +7,10 @@
 
 export type Panelist = { name: string; run: (prompt: string) => Promise<string> };
 
-export interface RoundEntry { name: string; idea: string; critiques: string[]; vote: string }
+// stance = a short STABLE label for the position (e.g. "judge-model") — votes get reworded round to
+// round, which looked like flips ("Spaces, 2 per indent" → "Spaces (2), enforced by Prettier" scored
+// unstable on a live run); convergence and flip detection compare stance first, vote text as fallback.
+export interface RoundEntry { name: string; idea: string; critiques: string[]; vote: string; stance: string }
 export interface BrainstormResult {
   topic: string;
   rounds: RoundEntry[][]; // rounds[i] = every panelist's entry that round
@@ -32,9 +35,10 @@ export function parseEntry(name: string, text: string): RoundEntry {
       idea: String(obj.idea ?? obj.revision ?? obj.idea_revision ?? "").trim() || text.trim(),
       critiques: Array.isArray(obj.critiques) ? obj.critiques.map((c: any) => (typeof c === "string" ? c : `${c.of ?? "?"}: ${c.point ?? ""}`)).filter(Boolean) : [],
       vote: String(obj.vote ?? "").trim(),
+      stance: String(obj.stance ?? "").trim(),
     };
   }
-  return { name, idea: text.trim(), critiques: [], vote: "" };
+  return { name, idea: text.trim(), critiques: [], vote: "", stance: "" };
 }
 
 function extractObject(text: string): any | null {
@@ -47,14 +51,16 @@ function extractObject(text: string): any | null {
 const PROPOSE = (topic: string) =>
   `You are on a panel brainstorming the best answer to this problem. Give your BEST independent idea — do ` +
   `not hedge, take a position.\n\nProblem: ${topic}\n\n` +
-  `Reply with JSON only: {"idea":"your concrete proposal","vote":"a one-line summary of what you'd pick"}`;
+  `Reply with JSON only: {"idea":"your concrete proposal","vote":"a one-line summary of what you'd pick",` +
+  `"stance":"a 1-3 word stable label for your position, e.g. 'judge-model'"}`;
 
 const CRITIQUE = (topic: string, board: RoundEntry[]) =>
   `Panel brainstorm — problem: ${topic}\n\nThe whole board this round:\n` +
-  board.map((e) => `[${e.name}] ${e.idea}${e.vote ? `  (picks: ${e.vote})` : ""}`).join("\n\n") +
+  board.map((e) => `[${e.name}] ${e.idea}${e.vote ? `  (picks: ${e.vote})` : ""}${e.stance ? `  [stance: ${e.stance}]` : ""}`).join("\n\n") +
   `\n\nRevise YOUR idea in light of the others — borrow what's better, defend what's right, drop what's ` +
   `been refuted. Reply with JSON only: {"idea":"your revised proposal","critiques":["short point about ` +
-  `another idea", "..."],"vote":"the ONE approach you now back, one line"}`;
+  `another idea", "..."],"vote":"the ONE approach you now back, one line","stance":"1-3 word label — if ` +
+  `your position has NOT changed, repeat your previous stance label EXACTLY; change it only on a real flip"}`;
 
 const SYNTHESIZE = (topic: string, rounds: RoundEntry[][]) =>
   `You are the synthesizer for a multi-model panel. Problem: ${topic}\n\nFinal positions:\n` +
@@ -62,8 +68,10 @@ const SYNTHESIZE = (topic: string, rounds: RoundEntry[][]) =>
   `\n\nWrite the decision brief: the single best answer and WHY it won, what each panelist contributed, ` +
   `the strongest rejected alternative and why it lost, and any open risk. Be concrete and concise.`;
 
-// A round "signature" = the multiset of votes, normalized. Stable across two rounds ⇒ converged.
-const voteSig = (r: RoundEntry[]) => r.map((e) => e.vote.toLowerCase().replace(/\s+/g, " ").trim()).sort().join(" | ");
+// A round "signature" = the multiset of positions, normalized. Stable across two rounds ⇒ converged.
+// stance (the stable label) beats vote text — reworded votes are not flips.
+export const positionOf = (e: RoundEntry) => (e.stance || e.vote).toLowerCase().replace(/\s+/g, " ").trim();
+const voteSig = (r: RoundEntry[]) => r.map(positionOf).sort().join(" | ");
 const ideaSig = (r: RoundEntry[]) => r.map((e) => e.idea.toLowerCase().replace(/\s+/g, " ").trim()).sort().join(" | ");
 
 export async function brainstorm(topic: string, panel: Panelist[], synthesizer: Panelist, opts: BrainstormOpts = {}): Promise<BrainstormResult> {
@@ -105,7 +113,7 @@ export async function brainstorm(topic: string, panel: Panelist[], synthesizer: 
     // no substantive change this round → done
     if (ideaSig(next) === ideaSig(board)) { converged = "no-change"; break; }
     // votes identical for two consecutive rounds → done
-    if (voteSig(next) === voteSig(board) && next.some((e) => e.vote)) { converged = "vote-stable"; break; }
+    if (voteSig(next) === voteSig(board) && next.some((e) => e.vote || e.stance)) { converged = "vote-stable"; break; }
   }
 
   ev?.("phase", "synthesizer", `synthesizing from ${rounds.length} round(s) (${converged})`);

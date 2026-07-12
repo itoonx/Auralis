@@ -7,13 +7,14 @@ const scripted = (name: string, replies: string[]): Panelist => {
   let i = 0;
   return { name, run: async () => replies[Math.min(i++, replies.length - 1)] };
 };
-const J = (idea: string, vote: string) => JSON.stringify({ idea, vote });
+const J = (idea: string, vote: string, stance?: string) => JSON.stringify({ idea, vote, ...(stance ? { stance } : {}) });
 
 describe("brainstorm engine (M6)", () => {
   it("parseEntry: JSON, fenced JSON, alt keys, and plain-text fallback", () => {
     expect(parseEntry("a", J("use bge", "bge")).vote).toBe("bge");
     expect(parseEntry("a", '```json\n{"idea_revision":"x","vote":"y"}\n```').idea).toBe("x");
-    expect(parseEntry("a", "no json here, just prose")).toEqual({ name: "a", idea: "no json here, just prose", critiques: [], vote: "" });
+    expect(parseEntry("a", "no json here, just prose")).toEqual({ name: "a", idea: "no json here, just prose", critiques: [], vote: "", stance: "" });
+    expect(parseEntry("a", J("x", "spaces everywhere", "spaces")).stance).toBe("spaces");
     expect(parseEntry("a", JSON.stringify({ idea: "z", critiques: [{ of: "b", point: "slow" }], vote: "z" })).critiques).toEqual(["b: slow"]);
   });
 
@@ -59,6 +60,16 @@ describe("brainstorm engine (M6)", () => {
     const res = await brainstorm("q", [scripted("solo", [J("idea", "v")])], scripted("s", ["brief"]), { rounds: 2 });
     expect(res.roundsUsed).toBe(2); // solo repeats its reply → round 2 == round 1 → no-change
     await expect(brainstorm("q", [], scripted("s", ["b"]))).rejects.toThrow(/at least one/);
+  });
+
+  it("stance labels: a REWORDED vote with the same stance is not a flip — converges vote-stable", async () => {
+    // Both models keep stance "spaces" while rewording BOTH idea and vote every round (the live
+    // false-flip case) — only the stance label says the position never moved.
+    const m1 = scripted("m1", [J("2-space indent", "Spaces, 2 per indent", "spaces"), J("prettier default indent", "Spaces (2), enforced by Prettier", "spaces"), J("x", "spaces via CI", "spaces")]);
+    const m2 = scripted("m2", [J("use spaces", "spaces everywhere", "spaces"), J("spaces with editorconfig", "spaces, prettier default", "spaces"), J("y", "spaces final", "spaces")]);
+    const res = await brainstorm("tabs or spaces?", [m1, m2], scripted("s", ["brief"]), { rounds: 4 });
+    expect(res.converged).toBe("vote-stable"); // stance stable round 1→2 despite new vote text every round
+    expect(res.roundsUsed).toBe(2);
   });
 
   const failing = (name: string): Panelist => ({ name, run: async () => { throw new Error("boom 429 no credits"); } });

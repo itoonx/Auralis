@@ -10,7 +10,7 @@ try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* no 
 // which is often a separate API account that may be out of credits. Drop it so the Agent SDK falls back to
 // the CLI login. Opt back into the API key with AURALIS_BRAINSTORM_ANTHROPIC_API=1 (headless/CI, no CLI login).
 if (process.env.AURALIS_BRAINSTORM_ANTHROPIC_API !== "1") delete process.env.ANTHROPIC_API_KEY;
-import { brainstorm, type Panelist } from "./brainstorm";
+import { brainstorm, positionOf, type Panelist } from "./brainstorm";
 import { preflightPanel } from "./brainstorm-preflight";
 import { parseSpec, keyFor, PRESETS, loadConfig, type RunnerSpec } from "./runners";
 import { ApiRunner } from "./runner";
@@ -96,17 +96,16 @@ async function main() {
     },
   });
 
-  // position.delta — who flipped their vote, at which round (the chart's spine, per the observability
-  // design). Derived from result.rounds after the fact: no engine change, order preserved.
-  const norm = (v: string) => v.toLowerCase().replace(/\s+/g, " ").trim();
+  // position.delta — who flipped their POSITION, at which round (the chart's spine, per the observability
+  // design). Compares stance labels (vote text as fallback) so a reworded vote is not a flip.
   let flips = 0, lastRoundFlips = 0;
   for (let r = 1; r < result.rounds.length; r++) {
     for (const e of result.rounds[r]) {
       const prev = result.rounds[r - 1].find((p) => p.name === e.name);
-      if (prev && e.vote && prev.vote && norm(prev.vote) !== norm(e.vote)) {
+      if (prev && positionOf(e) && positionOf(prev) && positionOf(prev) !== positionOf(e)) {
         flips++;
         if (r === result.rounds.length - 1) lastRoundFlips++;
-        emit("flip", e.name, `${e.name} flipped (round ${r + 1}): "${prev.vote.slice(0, 60)}" → "${e.vote.slice(0, 60)}"`);
+        emit("flip", e.name, `${e.name} flipped (round ${r + 1}): "${(prev.stance || prev.vote).slice(0, 60)}" → "${(e.stance || e.vote).slice(0, 60)}"`);
       }
     }
   }
