@@ -140,6 +140,40 @@ teammate already owns that file, the read is **blocked at the tool boundary** (a
 worker is redirected to reuse the finding. This is prevention, not a polite request — proven
 `prevented-dupes=4` on a live 3-worker run.
 
+#### The task loop — what actually happens, per task
+
+The Conductor (`src/conductor.ts`) walks the planned DAG level by level (level N waits for N−1, so a
+task reuses what its prerequisites found; tasks inside a level run concurrently up to a cap). Every
+task goes through the same five-step loop:
+
+```
+  intent ─► PULL ─► RUN ─► GRADE ─► (repair loop) ─► PUSH ─► provenance
+             │       │       │            │            │
+   search top-5    worker   Critic   reviewer feedback  learn — ONLY if
+   + graph-expand  (Agent   (gate)   appended, re-run   the Critic accepted
+   ids shown       SDK, brain        ≤ maxRetries
+   for `cite`      MCP tools,
+                   claim gate)
+```
+
+- **PULL** — the MemoryLibrarian injects the top findings *plus their graph neighborhood*, with each
+  hit's `[id]` visible so the worker can `cite` what actually helped (that citation feeds the ranking).
+- **RUN** — the worker announces its finding on the bus when done; Sentry and the Auditor react to it.
+- **GRADE** — the Critic is the **memory-poisoning gate**, born from a real incident: a run with an
+  exhausted API credit returned *"Credit balance is too low"* as its "finding", which would have been
+  captured as *"these files are fully covered"* and poisoned every future run's recall. Rejected answers
+  trigger **self-repair** (the reviewer's reason is appended and the task re-runs), and if still rejected
+  they are **not captured at all** — *better no memory than a lie*.
+- **PUSH** — accepted findings are learned into the brain (graph edges build automatically at ingress).
+- **Provenance** — every task records what it *recalled*, what it *explored*, what it *produced*, and how
+  many attempts it took — so "why did the society answer this?" is always answerable. The whole run also
+  lands on the activity timeline (opened with the **plan**, closed with the outcome), replayable in the
+  studio without ever having watched the console.
+
+One deliberate asymmetry: **coordination is reactive, not scripted.** There is no hardcoded handoff —
+workers publish findings, observers react, claims resolve at the shared brain. That's why the same
+orchestrator runs analyze mode, build mode, and any future runtime without changes.
+
 ---
 
 ### 3 · Runtime-agnostic (any model, any agent)

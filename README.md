@@ -60,6 +60,9 @@ More from live runs — full receipts in **[docs/proven.md](docs/proven.md)**:
 ## What you get
 
 - 🧠 **A living memory** — recall by meaning, a knowledge graph, earned trust, graceful forgetting
+- 🎼 **A real orchestrator, not just memory** — Planner → dependency DAG → concurrent workers sharing
+  *mid-task*; a Critic gates every answer (self-repair on failure, rejected results never poison the
+  brain) and per-task provenance answers "why did it do that?" — [the task loop](docs/platform.md#the-task-loop--what-actually-happens-per-task)
 - 🤝 **Real coordination** — claims that *prevent* duplicated or clobbered work across any number of agents
 - 🔨 **Build mode** — the fleet writes real programs, verified by an independent harness
 - 💬 **Claude Code, both ways** — your sessions feed the brain; fleet findings surface back in your prompts
