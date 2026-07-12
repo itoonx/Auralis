@@ -5,6 +5,25 @@ already isolates the runtime; `ApiRunner` (`runner.ts:123`) already proves the O
 for tool-less work. This phase builds the **tool-loop** version and makes the fleet heterogeneous —
 the roadmap's "heterogeneous runtimes" + the groundwork for "model/turn routing" (its highest-leverage item).
 
+## North star (the user's picture)
+
+> "Use multi-agent with any mix of models, and let them **brainstorm**: e.g. Claude Fable 5 writes the
+> plan, a GPT-5.5 critic tears it apart, and a Claude reviewer hunts bugs in the result."
+
+Decomposed, that is three capabilities, in dependency order:
+1. **Any model behind any role** — Phase 1 below (M0–M4: one ToolLoopRunner + presets + mixed fleets).
+2. **Model-per-ROLE, not just per-worker** — Planner / Critic / Reviewer each pick their own runner (M5).
+3. **Brainstorm loops** — roles *converse* (propose → critique → revise) before and after execution (M6).
+
+**mozaik verified (2026-07-12, `@mozaik-ai/core` d.ts):** the hunch is right — mozaik designed for this
+and auralis uses only a fraction of it. Available today, unused: **typed bus channels**
+(`deliverModelMessage` / `deliverReasoning` / `deliverFunctionCall(-Output)` with per-type `onExternal*`
+callbacks — we only use the plain string `deliverMessage`); **selective listening** (`Participant.listens`
+— a role subscribes to specific participant *classes*: exactly role-to-role conversation); a **shared,
+rehydratable `ModelContext`**; and a whole **multi-vendor inference layer** (`Endpoint` + mapper +
+`InferenceParams` + `TokenUsage`, `ModelName` union already spanning gpt-5.x / claude-4.x / gemini /
+deepseek). GLM isn't in the union, but `Endpoint` is an interface — custom endpoints plug in.
+
 ## The key insight — one new runner covers GPT *and* GLM (and more)
 
 GPT (api.openai.com) and GLM (open.bigmodel.cn `/api/paas/v4`) both speak **OpenAI-compatible chat
@@ -100,14 +119,55 @@ policy* (auto-pick by difficulty) stays out of scope until these static tiers ar
 | Key/billing confusion | doctor check per preset; runner keys documented as `.env` (billing), never `.env.oracle` |
 | Silent provider degradation | provider errors are returned as result text → Critic rejects → not captured (the poison-gate already built for this) |
 
+## Phase 2 — the society brainstorms (M5–M7)
+
+### M5 · Model-per-role (~1 day)
+The seams already exist; this milestone just gives each one a runner knob:
+- **LLM Critic** — `coordinate()` already takes an injectable `critic` (`conductor.ts:32`); today's
+  default is heuristic. Add `LlmCritic` backed by any `AgentRunner` (the tool-less `ApiRunner` suffices —
+  a **GPT critic is nearly free** once M2 lands). The heuristic stays as a pre-filter (infra-error/empty
+  checks are cheaper than a model call); the LLM grades substance: "does this actually answer the task?
+  what's missing?" Its reason feeds the existing self-repair loop verbatim.
+- **Reviewer** — a NEW role, distinct from the Critic: after a task (or a whole build) passes, the
+  Reviewer hunts *defects* (bugs, contract violations, unhandled edges) rather than grading completeness.
+  In build mode it runs before acceptance and its findings feed the rework prompt; its verdicts land on
+  the timeline like every other event.
+- Env: `AURALIS_PLANNER_RUNNER` · `AURALIS_CRITIC_RUNNER` · `AURALIS_REVIEWER_RUNNER` ·
+  `AURALIS_RUNNER(_SYNTHESIS)` — each `claude|gpt|glm|api-compat[:model]`, defaulting to the worker runner.
+**Gate:** the user's exact scenario runs: Fable plans → GPT critic grades → Claude reviewer bug-hunts a
+build output — three vendors in one run, visible per-role in the studio replay.
+
+### M6 · Brainstorm loops (~1–1.5 days)
+Two conversation patterns, both bounded and recorded:
+- **Plan review (pre-execution):** Planner proposes the DAG → a critic **panel** (1..N runners, each may
+  be a different model) critiques it with structured output (`{verdict, risks[], missing[], changes[]}`) →
+  Planner revises → repeat ≤ K rounds or until the panel accepts. The final plan carries its debate as
+  provenance: *why the plan looks like this* is answerable, like everything else in the run.
+- **Result debate (post-execution, opt-in):** for a flagged task, two runners argue (challenge → defend →
+  judge) before capture — the judge's verdict decides whether the finding enters the brain at normal or
+  reduced trust.
+Transport: the mozaik bus we already run on — moving from the plain string channel to typed
+`deliverModelMessage` + `listens` so roles address each other without broadcasting noise to every observer.
+**Gate:** a measured A/B on a fixed task set — plan-review ON vs OFF: Critic pass-rate and rework count
+must improve enough to pay for the extra model calls (the anti-theatre rule: a debate that doesn't move
+outcomes is expensive noise).
+
+### M7 · mozaik-native spike (timeboxed ~1 day, exploratory)
+Evaluate replacing pieces of our hand-rolled loop with mozaik's inference layer (`Endpoint` +
+`InferenceParams.tools` + `TokenUsage`): one worker runtime behind mozaik's abstraction, custom GLM
+endpoint via the mapper. Decide with evidence whether ToolLoopRunner (ours) or Endpoint (mozaik's) is the
+long-term home — **do not migrate wholesale on vibes**; the winner must pass the same M0 conformance suite.
+
 ## Out of scope (explicit)
 Auto-routing by task difficulty (needs M3's tiers measured first) · Gemini/Aider runners (same seam,
-add after ToolLoopRunner settles) · cross-machine claim TTL/lease (separate roadmap item) · streaming.
+add after ToolLoopRunner settles) · cross-machine claim TTL/lease (separate roadmap item) · streaming ·
+free-form unbounded agent chat (every conversation here is round-limited with a structured output — the
+bus is for coordination, not vibes).
 
 ## Sequence
 
 ```
-M0 ▶ M1 ▶ M2 ▶ M3 ▶ M4
-      (M2 and the M1 live-smoke can interleave; M3 needs M2; M4 needs M3)
+Phase 1: M0 ▶ M1 ▶ M2 ▶ M3 ▶ M4        (~3.5–4.5 days + bench evening)
+Phase 2:            M2 ▶ M5 ▶ M6        (~2–2.5 days; M5 needs M2's presets)
+                          M7 spike       (any time after M1, timeboxed)
 ```
-Total: ~3.5–4.5 days of work + one bench evening.
