@@ -137,26 +137,75 @@ The seams already exist; this milestone just gives each one a runner knob:
 **Gate:** the user's exact scenario runs: Fable plans → GPT critic grades → Claude reviewer bug-hunts a
 build output — three vendors in one run, visible per-role in the studio replay.
 
-### M6 · Brainstorm loops (~1–1.5 days)
-Two conversation patterns, both bounded and recorded:
-- **Plan review (pre-execution):** Planner proposes the DAG → a critic **panel** (1..N runners, each may
-  be a different model) critiques it with structured output (`{verdict, risks[], missing[], changes[]}`) →
-  Planner revises → repeat ≤ K rounds or until the panel accepts. The final plan carries its debate as
-  provenance: *why the plan looks like this* is answerable, like everything else in the run.
-- **Result debate (post-execution, opt-in):** for a flagged task, two runners argue (challenge → defend →
-  judge) before capture — the judge's verdict decides whether the finding enters the brain at normal or
-  reduced trust.
-Transport: the mozaik bus we already run on — moving from the plain string channel to typed
-`deliverModelMessage` + `listens` so roles address each other without broadcasting noise to every observer.
-**Gate:** a measured A/B on a fixed task set — plan-review ON vs OFF: Critic pass-rate and rework count
-must improve enough to pay for the extra model calls (the anti-theatre rule: a debate that doesn't move
-outcomes is expensive noise).
+### M6 · `/brainstorm` — the multi-model idea panel (~1.5–2 days)
+**The user-facing centerpiece:** a slash command that spins up a panel of models to think together and
+doesn't stop until the outcome is *learned*.
 
-### M7 · mozaik-native spike (timeboxed ~1 day, exploratory)
-Evaluate replacing pieces of our hand-rolled loop with mozaik's inference layer (`Endpoint` +
-`InferenceParams.tools` + `TokenUsage`): one worker runtime behind mozaik's abstraction, custom GLM
-endpoint via the mapper. Decide with evidence whether ToolLoopRunner (ours) or Endpoint (mozaik's) is the
-long-term home — **do not migrate wholesale on vibes**; the winner must pass the same M0 conformance suite.
+**Shortcut that reorders the plan:** brainstorming is **tool-less** (thinking, not exploring files) —
+so the engine needs only `ApiRunner` (exists) + the Claude runner, NOT the M1 ToolLoopRunner. M6 can
+land right after M2's config parsing, in parallel with M1.
+
+**Surface:**
+- `.claude/commands/brainstorm.md` → `/brainstorm <topic>` inside any Claude Code session in the repo
+  (runs `pnpm brainstorm "<topic>"`), and a `brainstorm` MCP tool on the existing server for everywhere else.
+- Panel comes from the config (see *Config surface* above): e.g. fable-5 + gpt-5.5 + glm-4-plus.
+
+**The loop (bounded, structured, recorded):**
+```
+round 0   each panelist proposes INDEPENDENTLY (no cross-talk — diversity first)
+round k   each panelist sees the whole board → structured output:
+          { idea_revision, critiques: [{of, point}], borrowed: [], vote }
+converge  stop when the vote is stable across 2 rounds, OR nothing substantive
+          changed (delta ≈ 0), OR K rounds (default 3) — whichever first
+synthesize a designated strong model merges: best idea · why it won · what each
+          model contributed · rejected alternatives with reasons · open risks
+LEARN     the brief lands in the brain (oracle learn, decision-record style,
+          project-scoped) — "จนกว่าจะได้เรียนรู้": recallable by every future
+          session and fleet worker; the full debate lands on the timeline
+```
+Every round is a timeline event → the studio replays the argument. Cost guard: per-round token cap +
+a printed running cost; the loop refuses to start if a panelist's key is missing (doctor-style check).
+
+**Gate:** `/brainstorm "should X use approach A or B?"` with a 3-vendor panel produces a synthesis that
+names each model's contribution, and the brief is recallable in a fresh session. Then the anti-theatre
+A/B (same as plan-review below): panel-of-3 vs single-strong-model on 5 real design questions — the
+panel must win on substance (a human picks blind) often enough to pay for itself.
+
+**Plan review (pre-execution) reuses the same engine:** Planner proposes the DAG → the panel critiques
+(`{verdict, risks[], missing[], changes[]}`) → Planner revises ≤ K rounds. Result debate (post-execution
+challenge→defend→judge before capture) also reuses it. Transport: mozaik's typed channels + `listens`
+(role-to-role without broadcasting noise) — the same bus we already run on.
+
+### M7 → M0.5 · mozaik-native spike (timeboxed ~1 day) — **promoted to design-input, runs BEFORE M1**
+Verified 2026-07-12: mozaik's `runInference` routes providers **by model name** (OpenAI / Anthropic /
+Gemini / DeepSeek-via-`OPENAI_BASE_URL`) with credentials from env, and it ships `InferenceParams.tools`
++ `executeFunctionCall` — i.e. the function-calling plumbing M1 was going to hand-roll may already exist.
+The spike answers, against the M0 conformance suite: (a) can ToolLoopRunner be built ON `runInference` +
+`executeFunctionCall` instead of raw fetch (getting provider routing + TokenUsage for free)?
+(b) does GLM work through the DeepSeek-style base-URL override, or does it need a custom `Endpoint`?
+**Do not migrate on vibes** — whichever loop passes conformance cheaper wins.
+
+## Config surface — one place to say which model runs which layer
+
+mozaik provides the *mechanism* (model is a per-call parameter); the *mapping* is ours:
+
+```jsonc
+// auralis.config.json (repo root, optional — every key has a default)
+{
+  "runners": {
+    "planner":   "claude:fable-5",
+    "worker":    "glm:glm-4-plus",
+    "synthesis": "claude:fable-5",
+    "critic":    "gpt:gpt-5.5",
+    "reviewer":  "claude:fable-5",
+    "brainstorm": ["claude:fable-5", "gpt:gpt-5.5", "glm:glm-4-plus"]
+  },
+  "brainstorm": { "rounds": 3, "synthesizer": "claude:fable-5" }
+}
+```
+Format `vendor[:model]`; env always wins (`AURALIS_CRITIC_RUNNER=gpt:gpt-5.5` overrides the file);
+billing keys stay in `.env` (`OPENAI_API_KEY`, `GLM_API_KEY`, …) — never `.env.oracle`.
+`auralis doctor` validates: every configured vendor has its key present.
 
 ## Out of scope (explicit)
 Auto-routing by task difficulty (needs M3's tiers measured first) · Gemini/Aider runners (same seam,
@@ -164,10 +213,13 @@ add after ToolLoopRunner settles) · cross-machine claim TTL/lease (separate roa
 free-form unbounded agent chat (every conversation here is round-limited with a structured output — the
 bus is for coordination, not vibes).
 
-## Sequence
+## Sequence (updated 2026-07-12 — spike promoted, /brainstorm decoupled from M1)
 
 ```
-Phase 1: M0 ▶ M1 ▶ M2 ▶ M3 ▶ M4        (~3.5–4.5 days + bench evening)
-Phase 2:            M2 ▶ M5 ▶ M6        (~2–2.5 days; M5 needs M2's presets)
-                          M7 spike       (any time after M1, timeboxed)
+M0 conformance ▶ M0.5 mozaik spike ▶ M1 ToolLoopRunner ▶ M3 hetero fleet ▶ M4 bench
+                        │
+                        └▶ M2 config surface ▶ M6 /brainstorm  (tool-less — no M1 needed)
+                                             ▶ M5 model-per-role
 ```
+Fastest path to the user-visible win: **M0 → M2 → M6** (~2.5 days) puts `/brainstorm` with a
+three-vendor panel in hand before the tool-loop work even finishes.
