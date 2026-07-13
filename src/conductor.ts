@@ -29,8 +29,10 @@ export interface FleetOutcome {
 }
 
 // A Critic grades a worker's answer; the Conductor retries rejected tasks (self-repair).
+// grade may be async (M5's LLM critic calls a model); the heuristic stays sync — both get awaited.
+export interface Verdict { ok: boolean; reason: string }
 export interface Critic {
-  grade(question: string, result: string): { ok: boolean; reason: string };
+  grade(question: string, result: string): Verdict | Promise<Verdict>;
 }
 
 // Default heuristic Critic: reject empty answers, early-stop stubs, non-answers, and infra errors.
@@ -38,8 +40,8 @@ export interface Critic {
 // as its "finding", which was then captured into the brain claiming its files were fully covered —
 // memory poisoning by outage, no attacker needed. The critic is the first gate against that.
 const INFRA_ERROR = /credit balance|rate.?limit|overloaded|billing|invalid.*api.?key|api error|quota exceeded/i;
-export const heuristicCritic: Critic = {
-  grade(_question, result) {
+export const heuristicCritic = {
+  grade(_question: string, result: string): Verdict {
     const r = result.trim();
     if (!r) return { ok: false, reason: "empty result" };
     if (r.startsWith("(worker stopped early")) return { ok: false, reason: "stopped before answering" };
@@ -83,14 +85,14 @@ export async function coordinate(
     const ctx = await librarian.injectFor(node.question);
     injectEnd({ hits: ctx.hitIds.length });
     let res = await log.time("worker.run", node.id, () => makeWorker(node.id).run(node.question, ctx.context)); // emits finding on the bus
-    let verdict = critic.grade(node.question, res.result);
+    let verdict = await critic.grade(node.question, res.result);
     let attempts = 1;
     while (!verdict.ok && attempts <= maxRetries) {
       emit?.("repair", node.id, `${node.id} retry: ${verdict.reason}`, { nodeId: node.id });
       const feedback = `A reviewer rejected the previous attempt (${verdict.reason}). Answer the task directly and concretely.`;
       const retryContext = ctx.context ? `${ctx.context}\n\n${feedback}` : feedback;
       res = await log.time("worker.run", `${node.id}#retry${attempts}`, () => makeWorker(node.id).run(node.question, retryContext));
-      verdict = critic.grade(node.question, res.result);
+      verdict = await critic.grade(node.question, res.result);
       attempts++;
     }
     const targets = [...new Set(res.explored.map((e) => e.target))];

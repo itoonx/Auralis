@@ -6,7 +6,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { AgenticEnvironment } from "@mozaik-ai/core";
 import { oracleReachable, type MemoryAdapter } from "./memory";
-import { makeRunnerFor, resolveRunnerSpec, brainToolsFromAdapter } from "./runners";
+import { makeRunnerFor, resolveRunnerSpec, explicitRunnerSpec, textRunnerFor, brainToolsFromAdapter } from "./runners";
+import { makeLlmCritic } from "./critic-llm";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
 import { buildLevels } from "./dag";
@@ -157,9 +158,16 @@ export async function runFleet(
     w.join(env);
     return w;
   };
+  // M5: an EXPLICITLY configured critic runner upgrades grading from the free heuristic to an LLM critic
+  // (substance, not just infra garbage). Opt-in on purpose: no config ⇒ no new model spend. The LLM
+  // critic's rejects feed the same self-repair loop; its fail-opens are named in the verdict reason.
+  const criticSpec = explicitRunnerSpec("critic");
+  const critic = criticSpec ? makeLlmCritic(textRunnerFor(criticSpec).run, `critic:${criticSpec.model ?? criticSpec.vendor}`) : undefined;
+  if (criticSpec) emit?.("note", "critic", `LLM critic active: ${criticSpec.model ?? criticSpec.vendor} grades every worker answer`);
   const outcome = await coordinate(nodes, makeWorker, new MemoryLibrarian(adapter, cfg.project), {
     concurrency: cfg.concurrency,
     maxRetries: cfg.maxRetries,
+    critic,
     emit,
   });
   if (cfg.out) {

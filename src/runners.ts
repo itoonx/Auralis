@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ClaudeCodeRunner, type AgentRunner } from "./runner";
+import { ApiRunner, ClaudeCodeRunner, type AgentRunner } from "./runner";
 import { ToolLoopRunner, type BrainTools } from "./runner-toolloop";
 import { brainSearch, brainLearn, type LiveStats } from "./brain-mcp";
 import { recordDecision, reverseDecision } from "./decision";
@@ -72,6 +72,42 @@ export function resolveRunnerSpec(role: Role, root = ROOT): RunnerSpec {
   const cfg = loadConfig(root).runners ?? {};
   const raw = cfg[role] ?? (role === "worker" ? undefined : cfg.worker);
   return raw ? parseSpec(raw) : { vendor: "claude" };
+}
+
+// Like resolveRunnerSpec but WITHOUT the worker/claude fallback — null unless the role was explicitly
+// configured (env or config). Used where a role runner is opt-in (M5's LLM critic/reviewer): silence
+// must mean "keep the free default", never "silently spend on a model".
+export function explicitRunnerSpec(role: Role, root = ROOT): RunnerSpec | null {
+  const env = process.env[ROLE_ENV[role]];
+  if (env && env !== "api") return parseSpec(env);
+  const raw = loadConfig(root).runners?.[role];
+  return raw ? parseSpec(raw) : null;
+}
+
+// A tool-less TEXT runner from a spec — thinking, not exploring: claude → the Agent SDK with no tools
+// (reuses the CLI login), anything else → an OpenAI-compatible chat call. Shared by the brainstorm
+// panel and the M5 critic/reviewer so every "pure text" role builds runners exactly one way.
+export function textRunnerFor(spec: RunnerSpec): { name: string; run: (prompt: string) => Promise<string> } {
+  const name = spec.model ? `${spec.vendor}:${spec.model}` : spec.vendor;
+  if (spec.vendor === "claude") {
+    return {
+      name,
+      run: async (prompt) => {
+        const { query } = await import("@anthropic-ai/claude-agent-sdk"); // lazy — no SDK cost in tests
+        let out = "";
+        for await (const m of query({ prompt, options: { maxTurns: 1, allowedTools: [] } as any })) {
+          const msg: any = m;
+          if (msg.type === "result" && msg.subtype === "success") out = String(msg.result ?? "");
+        }
+        return out.trim();
+      },
+    };
+  }
+  const preset = PRESETS[spec.vendor];
+  const key = keyFor(spec);
+  if (!key.ok) throw new Error(`runner "${name}" needs one of: ${key.missing?.join(" / ")} (set it in .env / shell)`);
+  const runner = new ApiRunner({ url: `${preset.baseURL.replace(/\/$/, "")}/chat/completions`, model: spec.model ?? preset.defaultModel, key: key.keyEnv ? process.env[key.keyEnv] : undefined });
+  return { name, run: async (prompt) => (await runner.run(prompt)).result };
 }
 
 // Which env key satisfies a spec's billing requirement — doctor + factory share one truth.

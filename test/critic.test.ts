@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { AgenticEnvironment } from "@mozaik-ai/core";
 import { Worker, MemoryLibrarian } from "../src/participants";
 import { coordinate, heuristicCritic } from "../src/conductor";
+import { makeLlmCritic } from "../src/critic-llm";
 import { NullMemoryAdapter } from "../src/memory";
 import type { AgentRunner, RunResult } from "../src/runner";
 import type { DagNode } from "../src/dag";
@@ -76,5 +77,45 @@ describe("critic / self-repair", () => {
     const out = await coordinate(one, makeWorkerFactory(env, new FlakyRunner()), new MemoryLibrarian(new NullMemoryAdapter()));
     expect(out.provenance[0].attempts).toBe(1);
     expect(out.repairs).toBe(0);
+  });
+});
+
+// M5 — the LLM critic: substance grading on top of the heuristic pre-filter, fail-open on outage.
+describe("LLM critic (M5)", () => {
+  const GOOD = "A real, complete analysis of the module and how it connects to the rest of the system.";
+
+  it("heuristic pre-filter rejects infra garbage WITHOUT calling the model", async () => {
+    let calls = 0;
+    const critic = makeLlmCritic(async () => { calls++; return '{"ok":true}'; });
+    const v = await critic.grade("q", "Credit balance is too low");
+    expect(v.ok).toBe(false);
+    expect(calls).toBe(0); // never paid for garbage
+  });
+
+  it("propagates the model's rejection and reason into self-repair", async () => {
+    const critic = makeLlmCritic(async () => '{"ok":false,"reason":"names files but never says what connects them"}');
+    const v = await critic.grade("q", GOOD);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("never says what connects");
+  });
+
+  it("accepts when the model accepts (fenced/prose-wrapped JSON tolerated)", async () => {
+    const critic = makeLlmCritic(async () => 'Sure!\n```json\n{"ok":true,"reason":"substantive"}\n```');
+    expect((await critic.grade("q", GOOD)).ok).toBe(true);
+  });
+
+  it("fails OPEN on provider error — named in the reason, never silent, never stalls the fleet", async () => {
+    const critic = makeLlmCritic(async () => { throw new Error("429 too many requests"); }, "critic:gpt");
+    const v = await critic.grade("q", GOOD);
+    expect(v.ok).toBe(true);
+    expect(v.reason).toContain("fail-open");
+    expect(v.reason).toContain("429");
+  });
+
+  it("fails OPEN on an unparseable verdict", async () => {
+    const critic = makeLlmCritic(async () => "I think it looks fine overall");
+    const v = await critic.grade("q", GOOD);
+    expect(v.ok).toBe(true);
+    expect(v.reason).toContain("unparseable");
   });
 });

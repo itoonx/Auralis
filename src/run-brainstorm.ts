@@ -12,39 +12,15 @@ try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* no 
 if (process.env.AURALIS_BRAINSTORM_ANTHROPIC_API !== "1") delete process.env.ANTHROPIC_API_KEY;
 import { brainstorm, positionOf, type Panelist } from "./brainstorm";
 import { preflightPanel } from "./brainstorm-preflight";
-import { parseSpec, keyFor, PRESETS, loadConfig, type RunnerSpec } from "./runners";
-import { ApiRunner } from "./runner";
+import { parseSpec, keyFor, loadConfig, textRunnerFor, type RunnerSpec } from "./runners";
 import { OracleAdapter } from "./memory";
 import { makeEmitter } from "./narrate";
 
 const PROJECT = process.env.AURALIS_PROJECT ?? "default";
 
-// A tool-less panelist from a spec: claude → the Agent SDK (no key), else an OpenAI-compatible chat call.
-function panelist(spec: RunnerSpec): Panelist {
-  const name = spec.model ? `${spec.vendor}:${spec.model}` : spec.vendor;
-  if (spec.vendor === "claude") {
-    // ClaudeCodeRunner is tool-driven; for pure thinking we use a minimal Agent SDK text call via ApiRunner's
-    // sibling path is overkill — reuse ApiRunner pointed at Anthropic-compatible? No: keep it simple, the
-    // Claude panelist runs through the Agent SDK query with no tools. Lazy-import to avoid SDK cost in tests.
-    return {
-      name,
-      run: async (prompt) => {
-        const { query } = await import("@anthropic-ai/claude-agent-sdk");
-        let out = "";
-        for await (const m of query({ prompt, options: { maxTurns: 1, allowedTools: [] } as any })) {
-          const msg: any = m;
-          if (msg.type === "result" && msg.subtype === "success") out = String(msg.result ?? "");
-        }
-        return out.trim();
-      },
-    };
-  }
-  const preset = PRESETS[spec.vendor];
-  const key = keyFor(spec);
-  if (!key.ok) throw new Error(`brainstorm panelist "${name}" needs one of: ${key.missing?.join(" / ")} (set it in .env / shell)`);
-  const runner = new ApiRunner({ url: `${preset.baseURL.replace(/\/$/, "")}/chat/completions`, model: spec.model ?? preset.defaultModel, key: key.keyEnv ? process.env[key.keyEnv] : undefined });
-  return { name, run: async (prompt) => (await runner.run(prompt)).result };
-}
+// A tool-less panelist from a spec — brainstorming is thinking, not exploring. One shared factory
+// (runners.textRunnerFor) builds every pure-text role runner: panelists here, the M5 critic/reviewer there.
+const panelist = (spec: RunnerSpec): Panelist => textRunnerFor(spec);
 
 // Liveness/credit probe for preflight: Claude uses the CLI login (no pay-per-call balance risk), so it's
 // assumed live and any auth issue surfaces in round 0. A paid provider must have a key AND answer a tiny
