@@ -41,7 +41,7 @@ export function parseEntry(name: string, text: string): RoundEntry {
   return { name, idea: text.trim(), critiques: [], vote: "", stance: "" };
 }
 
-function extractObject(text: string): any | null {
+export function extractObject(text: string): any | null { // shared with dialectic.ts — one tolerant JSON parser
   const fenced = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
   const raw = fenced ? fenced[1] : (() => { const s = text.indexOf("{"), e = text.lastIndexOf("}"); return s >= 0 && e > s ? text.slice(s, e + 1) : null; })();
   if (!raw) return null;
