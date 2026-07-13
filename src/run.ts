@@ -2,6 +2,7 @@
 // coordinated society twice — shared brain vs. baseline — with real Claude Code workers over a target
 // codebase, at the chosen parallelism. Reports fleet redundancy reduction + an auditable "why" trail.
 // Tuning: AURALIS_PARALLEL=1 (default) maximises knowledge-sharing; >1 runs each DAG level concurrently.
+import "./load-env"; // MUST be first: .env.oracle's ORACLE_TOKEN must be in env before ./memory computes AUTH
 import { resolve } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { OracleAdapter, NullMemoryAdapter } from "./memory";
@@ -29,7 +30,8 @@ const BUILD = (process.env.AURALIS_MODE ?? "analyze") === "build"; // build: wor
 const ACCEPT = process.env.AURALIS_ACCEPT; // build: close the loop — validate against this spec (rps|todo)
 const REWORK = Number(process.env.AURALIS_BUILD_RETRIES ?? 1); // extra fleet reworks when acceptance FAILS
 const GOAL =
-  process.env.AURALIS_GOAL ??
+  process.argv.slice(2).join(" ").trim() || // `pnpm dev "build X"` — argv was silently ignored before
+  process.env.AURALIS_GOAL ||
   "Understand this codebase end-to-end: its architecture, core modules, primary end-to-end flow, and error handling.";
 
 async function main() {
