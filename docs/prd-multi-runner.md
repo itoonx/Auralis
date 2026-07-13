@@ -121,7 +121,15 @@ policy* (auto-pick by difficulty) stays out of scope until these static tiers ar
 
 ## Phase 2 — the society brainstorms (M5–M8)
 
-### M5 · Model-per-role (~1 day)
+### M5 · Model-per-role (~1 day) — **SHIPPED 2026-07-13**
+
+> **Status:** both roles live, both gated against real models, both OPT-IN (no config ⇒ the free
+> defaults; silence never means "silently spend"). Critic gate: a real GPT critic rejected a fluent
+> non-answer with the exact gap named while accepting the concrete one. Reviewer gate: a real Claude
+> reviewer (explore tools) read a planted file and caught the summary's lie ("divide() guards b=0" —
+> it didn't). Both fail OPEN on provider outage, named in the verdict/note, never silent. Still open:
+> the full three-vendor studio-replay scenario below (needs a live build run).
+
 The seams already exist; this milestone just gives each one a runner knob:
 - **LLM Critic** — `coordinate()` already takes an injectable `critic` (`conductor.ts:32`); today's
   default is heuristic. Add `LlmCritic` backed by any `AgentRunner` (the tool-less `ApiRunner` suffices —
