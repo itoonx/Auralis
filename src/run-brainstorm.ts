@@ -10,7 +10,7 @@ try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* no 
 // which is often a separate API account that may be out of credits. Drop it so the Agent SDK falls back to
 // the CLI login. Opt back into the API key with AURALIS_BRAINSTORM_ANTHROPIC_API=1 (headless/CI, no CLI login).
 if (process.env.AURALIS_BRAINSTORM_ANTHROPIC_API !== "1") delete process.env.ANTHROPIC_API_KEY;
-import { brainstorm, positionOf, type Panelist } from "./brainstorm";
+import { brainstorm, positionOf, trustBadge, type Panelist } from "./brainstorm";
 import { dialectic } from "./dialectic";
 import { preflightPanel } from "./brainstorm-preflight";
 import { parseSpec, keyFor, loadConfig, textRunnerFor, resolveRunnerSpec, type RunnerSpec } from "./runners";
@@ -79,11 +79,14 @@ async function main() {
     },
   });
 
-  // position.delta — who flipped their POSITION, at which round (the chart's spine, per the observability
-  // design). Compares stance labels (vote text as fallback) so a reworded vote is not a flip.
+  // position events — one per (panelist, round): the chart's spine. Template is parsed by the studio's
+  // debate view ("name @rK: position"), so keep it stable. Flips compare stance labels (vote fallback)
+  // so a reworded vote is not a flip.
   let flips = 0, lastRoundFlips = 0;
-  for (let r = 1; r < result.rounds.length; r++) {
+  for (let r = 0; r < result.rounds.length; r++) {
     for (const e of result.rounds[r]) {
+      emit("position", e.name, `${e.name} @r${r + 1}: ${(e.stance || e.vote || e.idea.slice(0, 60)) || "—"}`);
+      if (r === 0) continue;
       const prev = result.rounds[r - 1].find((p) => p.name === e.name);
       if (prev && positionOf(e) && positionOf(prev) && positionOf(prev) !== positionOf(e)) {
         flips++;
@@ -93,14 +96,9 @@ async function main() {
     }
   }
 
-  // Trust badge — flip TIMING, not count (earned = flipped under challenge then settled; groupthink =
-  // agreement that was never challenged; unstable = still churning at the cap).
-  // ponytail: v1 heuristic, thresholds calibrate on real runs — the chart milestone owns tuning.
-  const badge =
-    pf.panel.length < 2 ? "solo (single panelist — no cross-examination)"
-    : result.converged === "max-rounds" && lastRoundFlips > 0 ? "unstable — still flipping in the final round; debate never closed"
-    : flips === 0 ? "groupthink? — converged with zero flips; agreement was never challenged"
-    : "earned — flipped under challenge, then settled";
+  // Trust badge v2 (see brainstorm.trustBadge) — unanimity inferred structurally (0 flips + converged),
+  // never by comparing stance strings across models (stable within a model, worded differently between).
+  const badge = trustBadge({ panelSize: pf.panel.length, flips, lastRoundFlips, converged: result.converged });
   emit("note", "trust", `trust: ${badge} (${flips} flip${flips === 1 ? "" : "s"}, ${result.converged}, ${result.roundsUsed} rounds)`);
   emit("answer", "synthesizer", `${result.converged} in ${result.roundsUsed} round(s) — ${result.synthesis.slice(0, 200)}`);
   console.error(`\n🎖 trust: ${badge}`);

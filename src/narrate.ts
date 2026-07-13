@@ -20,6 +20,7 @@ export const GLYPH: Record<string, string> = {
   answer: "✦", // session capture: the assistant's conclusion
   dropped: "✗", // brainstorm: a panelist failed a round (provider error) — surfaced, never silent
   flip: "↷", // brainstorm: a panelist changed its vote between rounds (the position-flow signal)
+  position: "◈", // brainstorm: one panelist's stance at one round ("name @rK: stance") — the chart's data
 };
 
 // The stored human line: glyph + body. Body is already a concise, person-readable sentence.

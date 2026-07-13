@@ -1,6 +1,6 @@
 // M6 — the brainstorm engine: convergence rules, tolerant parsing, event stream. Scripted panelists, no LLM.
 import { describe, it, expect } from "vitest";
-import { brainstorm, parseEntry, type Panelist } from "../src/brainstorm";
+import { brainstorm, parseEntry, trustBadge, type Panelist } from "../src/brainstorm";
 
 // A panelist that returns a queue of scripted replies (JSON strings), one per call.
 const scripted = (name: string, replies: string[]): Panelist => {
@@ -70,6 +70,19 @@ describe("brainstorm engine (M6)", () => {
     const res = await brainstorm("tabs or spaces?", [m1, m2], scripted("s", ["brief"]), { rounds: 4 });
     expect(res.converged).toBe("vote-stable"); // stance stable round 1→2 despite new vote text every round
     expect(res.roundsUsed).toBe(2);
+  });
+
+  it("trust badge v2: unanimous-independent ≠ groupthink; zero-flip non-convergence = stalemate", () => {
+    const base = { panelSize: 2, flips: 0, lastRoundFlips: 0 } as const;
+    // nobody moved AND it converged → start-to-finish agreement (structural — never cross-model strings)
+    expect(trustBadge({ ...base, converged: "vote-stable" })).toContain("unanimous-independent");
+    // nobody moved AND it never converged → a non-result, distrust
+    expect(trustBadge({ ...base, converged: "max-rounds" })).toContain("stalemate");
+    // flipped early then settled → earned
+    expect(trustBadge({ panelSize: 2, flips: 1, lastRoundFlips: 0, converged: "vote-stable" })).toContain("earned");
+    // still churning at the cap → unstable
+    expect(trustBadge({ panelSize: 2, flips: 2, lastRoundFlips: 1, converged: "max-rounds" })).toContain("unstable");
+    expect(trustBadge({ panelSize: 1, flips: 0, lastRoundFlips: 0, converged: "no-change" })).toContain("solo");
   });
 
   const failing = (name: string): Panelist => ({ name, run: async () => { throw new Error("boom 429 no credits"); } });

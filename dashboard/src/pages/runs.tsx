@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CopyButton, ErrorStrip, InfoTip, KindChip, Num, SectionTitle } from "@/components/bits"
+import { DebateView } from "@/components/debate"
 import { getRuns, getTiming, type RunSummary, type TimelineEvent } from "@/lib/api"
 import { usePoll } from "@/lib/use-poll"
 import { clock, dateTime, fmtDur, fmtMs } from "@/lib/time"
@@ -180,6 +181,8 @@ export function RunsPage({ project, tick, selected, onSelect, onOpenInFeed, tl }
             </CardHeader>
             <CardContent className="space-y-4">
               <ScoreChips r={selRun} />
+              {/* debate runs (/brainstorm) carry position events — the flow chart renders itself only then */}
+              {tl?.run === selected && <DebateView events={tl.events} />}
               <div>
                 <h3 className="mb-2 text-xs font-medium text-muted-foreground">latest moments <span className="font-normal">· local 24h · same vocabulary as the overview feed</span></h3>
                 {detailEvents ? (

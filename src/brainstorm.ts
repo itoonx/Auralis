@@ -74,6 +74,21 @@ export const positionOf = (e: RoundEntry) => (e.stance || e.vote).toLowerCase().
 const voteSig = (r: RoundEntry[]) => r.map(positionOf).sort().join(" | ");
 const ideaSig = (r: RoundEntry[]) => r.map((e) => e.idea.toLowerCase().replace(/\s+/g, " ").trim()).sort().join(" | ");
 
+// Trust badge v2 — flip TIMING plus round-0 context. Found live (twice): (1) two models that agreed in
+// their INDEPENDENT round-0 proposals scored "groupthink?" — but pre-cross-talk agreement is a strong
+// signal, not herding; (2) comparing stance STRINGS across models is unreliable (labels are stable
+// within a model, worded differently between models), so unanimity is inferred structurally instead:
+// zero flips means nobody ever moved, and convergence means the (per-model-stable) signature settled —
+// together that IS start-to-finish agreement. Zero flips without convergence is a stalemate.
+export function trustBadge(o: { panelSize: number; flips: number; lastRoundFlips: number; converged: BrainstormResult["converged"] }): string {
+  if (o.panelSize < 2) return "solo (single panelist — no cross-examination)";
+  if (o.flips === 0 && o.converged !== "max-rounds")
+    return "unanimous-independent — nobody moved and it converged; strong signal, but check for shared blind spots";
+  if (o.flips === 0) return "stalemate — nobody moved and the debate never converged; distrust the non-result";
+  if (o.converged === "max-rounds" && o.lastRoundFlips > 0) return "unstable — still flipping in the final round; debate never closed";
+  return "earned — flipped under challenge, then settled";
+}
+
 export async function brainstorm(topic: string, panel: Panelist[], synthesizer: Panelist, opts: BrainstormOpts = {}): Promise<BrainstormResult> {
   if (!panel.length) throw new Error("brainstorm needs at least one panelist");
   const maxRounds = Math.max(1, opts.rounds ?? 3);
