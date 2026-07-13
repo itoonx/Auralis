@@ -15,5 +15,10 @@ and it is learned into the shared brain (recallable by every future session and 
 pnpm brainstorm "$ARGUMENTS"
 ```
 
+Adversarial mode (M8 dialectic — propose → challenge → defend → judge → synthesize; the crystal is
+learned as PROVISIONAL with its scar record): set `AURALIS_BRAINSTORM_MODE=converge` (or config
+`brainstorm.mode`), with a judge distinct from every panelist via `AURALIS_BRAINSTORM_JUDGE`
+(e.g. `gpt:gpt-5.4-mini`).
+
 Report the synthesis to me, note which models were on the panel and how it converged, and confirm the
 brief was saved to the brain.

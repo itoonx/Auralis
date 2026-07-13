@@ -227,7 +227,16 @@ The spike answers, against the M0 conformance suite: (a) can ToolLoopRunner be b
 (b) does GLM work through the DeepSeek-style base-URL override, or does it need a custom `Endpoint`?
 **Do not migrate on vibes** — whichever loop passes conformance cheaper wins.
 
-### M8 · The dialectic — crystallize what survives, not what agrees (~2–3 days)
+### M8 · The dialectic — crystallize what survives, not what agrees (~2–3 days) — **v1 SHIPPED 2026-07-13**
+
+> **Status:** engine + CLI live. `src/dialectic.ts` implements the v1 contract (schema-enforced
+> NOT_ANSWERED default, fault-tolerant stages → INCONCLUSIVE, derangement asserted, provenance-gated
+> synthesis — 8 contract tests). `AURALIS_BRAINSTORM_MODE=converge` runs it through `/brainstorm`
+> (judge via `AURALIS_BRAINSTORM_JUDGE` / config `brainstorm.judge`, preflighted). Proven live with
+> three distinct models (opus-4.8 authors, 5.6-sol challenger, 5.4-mini judge): concrete failure-
+> scenario attacks, responsive-ruled defenses, premise red-team landed, crystal LEARNED as PROVISIONAL
+> with its full scar record and recalled back. Opt-in (panel stays default) until the anti-theatre
+> A/B gate below passes. Still open: A/B gate · diverge (forum) mode · margin/anchor machinery (M8.2).
 
 **North Star.** The system's output is **not "an answer"** — it is a *claim that carries the scars of
 what attacked it* (**calibrated**), *written to the brain to be superseded later* (**persistent**), and

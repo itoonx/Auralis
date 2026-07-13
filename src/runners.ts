@@ -42,7 +42,7 @@ export function parseSpec(raw: string): RunnerSpec {
 
 interface AuralisConfig {
   runners?: Partial<Record<Role, string>> & { brainstorm?: string[] };
-  brainstorm?: { rounds?: number; synthesizer?: string };
+  brainstorm?: { rounds?: number; synthesizer?: string; mode?: "panel" | "converge"; judge?: string };
 }
 
 let cached: AuralisConfig | null | undefined;

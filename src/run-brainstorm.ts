@@ -11,8 +11,9 @@ try { process.loadEnvFile(new URL("../.env", import.meta.url)); } catch { /* no 
 // the CLI login. Opt back into the API key with AURALIS_BRAINSTORM_ANTHROPIC_API=1 (headless/CI, no CLI login).
 if (process.env.AURALIS_BRAINSTORM_ANTHROPIC_API !== "1") delete process.env.ANTHROPIC_API_KEY;
 import { brainstorm, positionOf, type Panelist } from "./brainstorm";
+import { dialectic } from "./dialectic";
 import { preflightPanel } from "./brainstorm-preflight";
-import { parseSpec, keyFor, loadConfig, textRunnerFor, type RunnerSpec } from "./runners";
+import { parseSpec, keyFor, loadConfig, textRunnerFor, resolveRunnerSpec, type RunnerSpec } from "./runners";
 import { OracleAdapter } from "./memory";
 import { makeEmitter } from "./narrate";
 
@@ -54,6 +55,12 @@ async function main() {
     process.exit(1);
   }
   if (pf.excluded.length) console.error(`⚠ running without: ${pf.excluded.map((e) => e.name).join(", ")} — fix keys/credits to include them`);
+
+  // M8 converge mode — the adversarial dialectic replaces the simultaneous panel. Opt-in until the
+  // anti-theatre A/B gate passes (PRD rule: don't ship it as the default on vibes).
+  const mode = process.env.AURALIS_BRAINSTORM_MODE ?? loadConfig().brainstorm?.mode ?? "panel";
+  if (mode === "converge") return runConverge(topic, pf.panel, pf.synth);
+
   console.error(`🧠 brainstorm: ${pf.panel.map((s) => s.model ?? s.vendor).join(" · ")} → synth ${pf.synth.model ?? pf.synth.vendor} · ≤${rounds} rounds\n`);
 
   // Timeline wiring — the studio replays a brainstorm like any fleet run. Best-effort by construction
@@ -112,6 +119,61 @@ async function main() {
       const { id } = await brain.learn(pattern, { project: PROJECT, concepts: ["brainstorm", "decision"], source: "auralis:brainstorm", pinned: true });
       console.error(`✓ learned into the brain (${id}) — recallable in every future session`);
     } catch (e) { console.error(`⚠ brainstorm not saved (oracle unreachable): ${String(e).slice(0, 120)}`); }
+  }
+}
+
+// M8 converge — propose → challenge → defend → judge → synthesize; the crystal (with its scar record)
+// is LEARNED as PROVISIONAL. Judge: AURALIS_BRAINSTORM_JUDGE > config brainstorm.judge > reviewer role —
+// preflighted like any paid provider; the engine aborts on a name collision (author ≠ challenger ≠ judge).
+async function runConverge(topic: string, panelSpecList: RunnerSpec[], synthSpec: RunnerSpec) {
+  const rawJudge = process.env.AURALIS_BRAINSTORM_JUDGE ?? loadConfig().brainstorm?.judge;
+  const judgeSpec = rawJudge ? parseSpec(rawJudge) : resolveRunnerSpec("reviewer");
+  const judgeName = judgeSpec.model ? `${judgeSpec.vendor}:${judgeSpec.model}` : judgeSpec.vendor;
+  try { await liveProbe(judgeSpec); console.error(`  ✓ judge ${judgeName}`); } catch (e) {
+    console.error(`✗ judge ${judgeName} failed preflight (${String((e as Error).message).slice(0, 100)}) — a dialectic cannot run unjudged.`);
+    process.exit(1);
+  }
+
+  const brain = new OracleAdapter();
+  const runId = `dialectic-${Date.now().toString(36)}`;
+  const emit = makeEmitter({ adapter: brain, runId, project: PROJECT });
+  emit("prompt", "user", topic);
+  console.error(`⚔️ dialectic: ${panelSpecList.map((s) => s.model ?? s.vendor).join(" · ")} → judge ${judgeSpec.model ?? judgeSpec.vendor} → synth ${synthSpec.model ?? synthSpec.vendor}\n`);
+
+  const res = await dialectic(topic, panelSpecList.map(panelist), panelist(judgeSpec), panelist(synthSpec), {
+    onEvent: (kind, name, human) => {
+      console.error(kind === "dropped" ? `  ⚠ ${human}` : `  ${human}`);
+      emit(kind, name, human);
+    },
+  });
+
+  console.error("");
+  for (const c of res.crystals) console.error(`  🔹 [${c.id} ${c.author}] ${c.verdict}${c.scar.note ? ` — ${c.scar.note}` : ""}`);
+  if (res.premiseAttack) console.error(`  🔻 premise risk (${res.premiseAttack.challenger}): ${res.premiseAttack.assumption.slice(0, 100)}`);
+  console.log(`\n${"═".repeat(70)}\n⚔️ DIALECTIC ${res.allSunk ? "— ALL SUNK (no winner; do not build on this as settled)" : `— winner ${res.winner!.id} by ${res.winner!.author}`}\n${"═".repeat(70)}\n${res.synthesis}\n`);
+  emit("answer", "synthesizer", `${res.allSunk ? "ALL SUNK" : `winner ${res.winner!.id} by ${res.winner!.author}`} · ${res.inconclusive} inconclusive — ${res.synthesis.slice(0, 200)}`);
+
+  // LEARN the crystal WITH its scar record — the scar is the valuable part, and it is PROVISIONAL by
+  // rule (v1: no anchor pool exists, nothing can be settled). Every provisional write is thus visible.
+  if (process.env.AURALIS_BRAINSTORM_NO_LEARN !== "1") {
+    try {
+      const scarText = res.crystals.map((c) =>
+        `[${c.id} by ${c.author} · ${c.verdict}] ${c.claim.slice(0, 120)}` +
+        (c.scar.attack ? `\n  attack (${c.scar.attack.challenger}): ${c.scar.attack.failureScenario.slice(0, 150)}` : "") +
+        (c.scar.defense ? `\n  defense: ${c.scar.defense.kind}` : "") +
+        (c.scar.ruling ? `\n  ruling (${c.scar.ruling.judge}): ${c.scar.ruling.responsive ? "responsive" : "NOT responsive"} — ${c.scar.ruling.why.slice(0, 120)}` : "") +
+        (c.scar.note ? `\n  note: ${c.scar.note}` : "")).join("\n");
+      const pattern =
+        `Dialectic decision (PROVISIONAL) — ${topic}\n` +
+        (res.allSunk
+          ? `ALL PROPOSALS SUNK — no survivor; the synthesis below is a new direction, not a settled answer.\n`
+          : `Winner (by survivability): [${res.winner!.id} by ${res.winner!.author}] ${res.winner!.claim.slice(0, 300)}\n`) +
+        `Scar record:\n${scarText}\n` +
+        (res.premiseAttack ? `Premise risk: ${res.premiseAttack.assumption} — ${res.premiseAttack.whyFalse.slice(0, 200)}\n` : "") +
+        `Synthesis:\n${res.synthesis}`;
+      const { id } = await brain.learn(pattern, { project: PROJECT, concepts: ["dialectic", "decision", "provisional"], source: "auralis:dialectic", pinned: true });
+      console.error(`✓ crystal learned (PROVISIONAL, scar attached) — ${id}`);
+    } catch (e) { console.error(`⚠ crystal not saved (oracle unreachable): ${String(e).slice(0, 120)}`); }
   }
 }
 
