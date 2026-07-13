@@ -95,7 +95,7 @@ export function textRunnerFor(spec: RunnerSpec): { name: string; run: (prompt: s
       run: async (prompt) => {
         const { query } = await import("@anthropic-ai/claude-agent-sdk"); // lazy — no SDK cost in tests
         let out = "";
-        for await (const m of query({ prompt, options: { maxTurns: 1, allowedTools: [] } as any })) {
+        for await (const m of query({ prompt, options: { maxTurns: 1, allowedTools: [], ...(spec.model ? { model: spec.model } : {}) } as any })) {
           const msg: any = m;
           if (msg.type === "result" && msg.subtype === "success") out = String(msg.result ?? "");
         }
@@ -132,7 +132,7 @@ export interface WorkerRunnerOpts {
 
 export function makeRunnerFor(spec: RunnerSpec, opts: WorkerRunnerOpts): AgentRunner {
   if (spec.vendor === "claude") {
-    return new ClaudeCodeRunner({ cwd: opts.cwd, maxTurns: opts.maxTurns, brain: opts.mcpBrain, build: opts.build, claim: opts.claim, onStep: opts.onStep });
+    return new ClaudeCodeRunner({ cwd: opts.cwd, maxTurns: opts.maxTurns, model: spec.model, brain: opts.mcpBrain, build: opts.build, claim: opts.claim, onStep: opts.onStep });
   }
   const preset = PRESETS[spec.vendor];
   const key = keyFor(spec);

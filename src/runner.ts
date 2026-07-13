@@ -39,7 +39,8 @@ export class ClaudeCodeRunner implements AgentRunner {
   // write is confined to the workspace dir. Off = analyse mode: read-only, claim guards reads (dedup).
   // `onStep` (optional) narrates every tool call as it happens — the fix for the silent 50–70s while a
   // worker runs. It fires for EVERY tool_use (Read/Grep/Write and mcp__oracle__*), not just tracked reads.
-  constructor(private readonly opts: { cwd: string; maxTurns?: number; brain?: unknown; build?: boolean; claim?: (target: string) => Promise<{ ok: boolean; owner: string }>; onStep?: (tool: string, target?: string) => void }) {}
+  // `model` (optional) pins the Claude model (e.g. "claude-opus-4-8") — unset keeps the CLI default.
+  constructor(private readonly opts: { cwd: string; maxTurns?: number; model?: string; brain?: unknown; build?: boolean; claim?: (target: string) => Promise<{ ok: boolean; owner: string }>; onStep?: (tool: string, target?: string) => void }) {}
 
   async run(prompt: string): Promise<RunResult> {
     const explored: Exploration[] = [];
@@ -55,6 +56,7 @@ export class ClaudeCodeRunner implements AgentRunner {
       permissionMode: "acceptEdits",
       maxTurns: this.opts.maxTurns ?? 12,
     };
+    if (this.opts.model) options.model = this.opts.model; // pin the Claude model (e.g. claude:claude-opus-4-8)
     if (this.opts.brain) {
       options.mcpServers = { oracle: this.opts.brain };
       options.allowedTools = [...options.allowedTools, "mcp__oracle__search", "mcp__oracle__learn", "mcp__oracle__decide", "mcp__oracle__note", "mcp__oracle__cite"];
