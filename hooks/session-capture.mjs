@@ -10,8 +10,9 @@
 //   already-durable→ dropped     (git records commits; don't save what the repo already records)
 //
 // Fail-silent by design: a dead oracle or a slow request must never break the user's session.
-import { readFileSync, realpathSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 // Carry the same ORACLE_TOKEN / ORACLE_API_URL the container reads: one repo .env.oracle feeds both the
@@ -51,11 +52,51 @@ export function scrub(s) {
   return out;
 }
 
+// ---- project-scope resolution (unit-tested) ----------------------------------------------------------
+// A session is often LAUNCHED in a command-center repo (e.g. auralis) while the actual work lands in a
+// sibling project (e.g. crypto-payment-crm). basename(cwd) alone mis-files those sessions twice over:
+// captures pollute the launcher's brain AND recall misses the working repo's brain. Ground truth is the
+// file path of each Write/Edit — resolve its enclosing git repo, remember it per session, and let
+// path-less events (prompts, answers) inherit the remembered scope. Explicit AURALIS_PROJECT always wins;
+// cwd basename stays the fallback until the first in-repo write.
+export function repoNameForPath(path, exists = existsSync) {
+  const p = String(path ?? "");
+  if (!p.startsWith("/")) return null; // relative → no reliable repo root
+  let dir = dirname(p);
+  for (let i = 0; i < 40 && dir.length > 1; i++) {
+    if (exists(join(dir, ".git"))) {
+      const name = basename(dir);
+      return name.startsWith(".") ? null : name; // dot-dirs (~/.claude as a repo) are not project scopes
+    }
+    dir = dirname(dir);
+  }
+  return null; // scratchpads / tmp files — keep whatever scope the session already has
+}
+
+const scopeStateFile = (sessionId) => join(tmpdir(), `auralis-scope-${sessionId ?? "unknown"}`);
+
+export function resolveProject(payload, io = { exists: existsSync, read: readFileSync, write: writeFileSync }) {
+  if (process.env.AURALIS_PROJECT) return process.env.AURALIS_PROJECT;
+  const state = scopeStateFile(payload?.session_id);
+  if (payload?.hook_event_name === "PostToolUse") {
+    const repo = repoNameForPath(payload?.tool_input?.file_path, io.exists);
+    if (repo) {
+      try { io.write(state, repo); } catch { /* tmp not writable — scope just won't stick */ }
+      return repo;
+    }
+  }
+  try {
+    const remembered = String(io.read(state, "utf8")).trim();
+    if (remembered) return remembered;
+  } catch { /* no remembered scope yet — first turns fall back to cwd */ }
+  return basename(payload?.cwd ?? "") || "session";
+}
+
 // ---- pure ingress classifier (unit-tested) ----------------------------------------------------------
 // Decide what to do with one hook payload. Returns a list of actions; the I/O layer just executes them.
-export function route(payload) {
+// `project` is injected by main() via resolveProject(); the default keeps the old cwd-only behavior.
+export function route(payload, project = basename(payload?.cwd ?? "") || "session") {
   const kind = payload?.hook_event_name;
-  const project = basename(payload?.cwd ?? "") || "session";
   const actions = [];
 
   // Fleet workers are Claude subprocesses that inherit this repo's hooks — their prompts/answers are NOT
@@ -202,7 +243,7 @@ async function main() {
   let payload = {};
   try { payload = JSON.parse(readFileSync(0, "utf8")); } catch { /* no stdin — nothing to do */ }
   if (isDuplicateInstall(process.argv[1] ?? "", payload?.cwd ?? "", (p) => readFileSync(p, "utf8"))) process.exit(0);
-  const actions = route(payload);
+  const actions = route(payload, resolveProject(payload));
   let context = null;
   for (const a of actions) {
     if (a.type === "event") await post("/api/event", { runId: `session:${payload?.session_id ?? "unknown"}`, project: a.project, kind: a.kind, actor: a.actor, human: a.human, refs: a.refs });

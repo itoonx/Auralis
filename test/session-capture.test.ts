@@ -5,7 +5,7 @@ import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs module, no types; route() is the exported pure classifier
-import { route, isDuplicateInstall, scrub } from "../hooks/session-capture.mjs";
+import { route, isDuplicateInstall, scrub, repoNameForPath, resolveProject } from "../hooks/session-capture.mjs";
 
 const base = { cwd: "/Users/x/git/myrepo", session_id: "s1" };
 
@@ -113,6 +113,12 @@ describe("session-capture ingress", () => {
     expect(route({})).toEqual([]);
   });
 
+  it("route() accepts an injected project scope (resolved by main via resolveProject)", () => {
+    const prompt = "Please refactor the auth middleware so the session token is validated before rate limiting is applied.";
+    const a = route({ ...base, hook_event_name: "UserPromptSubmit", prompt }, "crypto-payment-crm");
+    for (const x of a.filter((x: any) => x.type !== "recall")) expect(x.project).toBe("crypto-payment-crm");
+  });
+
   it("scrub() redacts real secrets but leaves ordinary prose alone", () => {
     // synthetic (fake) values — shapes only, never real keys
     expect(scrub("key is sk-FAKEabcdefghijklmnopqrstuvwxyz0123")).toBe("key is [REDACTED]");
@@ -131,5 +137,49 @@ describe("session-capture ingress", () => {
     expect(dump).not.toContain(key);        // not in the event.human, not in any learn.pattern
     expect(dump).toContain("[REDACTED]");   // it WAS present and got redacted (not just absent by luck)
     expect(a.some((x: any) => x.type === "learn")).toBe(true); // prompt is long enough to learn — path exercised
+  });
+});
+
+describe("project-scope resolution (launch dir ≠ working repo)", () => {
+  const gitAt = (...roots: string[]) => (p: string) => roots.some((r) => p === join(r, ".git"));
+
+  it("repoNameForPath walks up to the NEAREST .git and names that repo", () => {
+    const exists = gitAt("/Users/x/git/project/crypto-payment-crm", "/Users/x/git/project");
+    expect(repoNameForPath("/Users/x/git/project/crypto-payment-crm/src/service/p2pMatch.ts", exists)).toBe("crypto-payment-crm");
+    expect(repoNameForPath("/Users/x/git/project/README.md", exists)).toBe("project");
+  });
+
+  it("relative paths, repo-less paths, and dot-dir repos resolve to null", () => {
+    expect(repoNameForPath("src/x.ts", gitAt("/Users/x/git/myrepo"))).toBeNull();
+    expect(repoNameForPath("/private/tmp/scratch/topic.txt", () => false)).toBeNull();
+    expect(repoNameForPath("/Users/x/.claude/memory/note.md", gitAt("/Users/x/.claude"))).toBeNull();
+  });
+
+  it("a Write into a sibling repo switches the session scope and REMEMBERS it for path-less events", () => {
+    const state: Record<string, string> = {};
+    const io = {
+      exists: gitAt("/Users/x/git/project/crypto-payment-crm", "/Users/x/git/project/auralis"),
+      read: (p: string) => { if (!(p in state)) throw new Error("ENOENT"); return state[p]; },
+      write: (p: string, v: string) => { state[p] = v; },
+    };
+    const launch = { cwd: "/Users/x/git/project/auralis", session_id: "s9" };
+    // before any write: falls back to the launch dir
+    expect(resolveProject({ ...launch, hook_event_name: "UserPromptSubmit", prompt: "hi" }, io)).toBe("auralis");
+    // a Write lands in the sibling repo → scope switches...
+    expect(resolveProject({ ...launch, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "/Users/x/git/project/crypto-payment-crm/src/web/validator/requestWithdrawal.ts" } }, io)).toBe("crypto-payment-crm");
+    // ...and the NEXT prompt/answer (no file path) inherits the remembered scope
+    expect(resolveProject({ ...launch, hook_event_name: "UserPromptSubmit", prompt: "next" }, io)).toBe("crypto-payment-crm");
+    expect(resolveProject({ ...launch, hook_event_name: "Stop" }, io)).toBe("crypto-payment-crm");
+    // a scratchpad write does NOT flip the remembered scope
+    expect(resolveProject({ ...launch, hook_event_name: "PostToolUse", tool_name: "Write", tool_input: { file_path: "/private/tmp/scratch/topic.txt" } }, io)).toBe("crypto-payment-crm");
+  });
+
+  it("explicit AURALIS_PROJECT always wins", () => {
+    process.env.AURALIS_PROJECT = "forced-scope";
+    try {
+      expect(resolveProject({ ...base, hook_event_name: "UserPromptSubmit", prompt: "x" }, { exists: () => true, read: () => "other", write: () => {} })).toBe("forced-scope");
+    } finally {
+      delete process.env.AURALIS_PROJECT;
+    }
   });
 });
