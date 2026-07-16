@@ -256,5 +256,8 @@ async function main() {
   process.exit(0); // ALWAYS 0 — capture is best-effort, never a gate
 }
 
-// Only run the I/O when invoked as a hook, not when imported by tests.
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// Only run the I/O when invoked as a hook, not when imported by tests. MUST be the realpath-aware isMain:
+// the naive `import.meta.url === file://argv[1]` is false through the ~/.claude/hooks symlink (Node resolves
+// import.meta.url to the real file, argv[1] stays the symlink), which silently disabled the GLOBAL install —
+// every session launched outside this repo captured nothing (found live 2026-07-16).
+if (isMain) main();
