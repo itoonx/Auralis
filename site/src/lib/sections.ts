@@ -23,7 +23,7 @@ export const SECTIONS: SectionLink[] = [
   { id: 'replay', label: 'run replay' },
   { id: 'mcp', label: 'MCP' },
   { id: 'install', label: 'install', hideInMenu: true },
-  { id: 'limits', label: 'roadmap' },
+  { id: 'limits', label: 'honest limits' },
 ]
 
 // what the nav "more" dropdown lists — the full index minus top-level dupes

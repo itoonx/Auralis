@@ -3,9 +3,9 @@ import Section from './Section.astro'
 
 const steps = [
   {
-    label: 'install & test',
-    cmd: 'git clone https://github.com/itoonx/Auralis && cd Auralis\npnpm install && pnpm test',
-    note: 'prerequisites: node 20+ · pnpm · bun ≥ 1.2 · docker (daemon stack only) · claude code logged in',
+    label: 'install',
+    cmd: 'curl -fsSL https://raw.githubusercontent.com/itoonx/Auralis/main/install.sh | bash',
+    note: 'one line, docker-only — fetches the repo into ~/auralis, wires auth, builds & starts the stack, embeds the brain · idempotent. prefer to clone? git clone https://github.com/itoonx/Auralis && pnpm install && pnpm test · prerequisites: docker · node 20+ · pnpm · claude code logged in',
   },
   {
     label: 'start the daemon',
