@@ -10,6 +10,7 @@ import { makeRunnerFor, resolveRunnerSpec, explicitRunnerSpec, textRunnerFor, br
 import { makeLlmCritic } from "./critic-llm";
 import { Worker, Auditor, Sentry, MemoryLibrarian } from "./participants";
 import { coordinate, type FleetOutcome } from "./conductor";
+import { shadowLog } from "./shadow";
 import { buildLevels } from "./dag";
 import { planGoal, planBuild } from "./planner";
 import { brainMcpServer, newLiveStats, type LiveStats } from "./brain-mcp";
@@ -177,11 +178,14 @@ export async function runFleet(
   const criticSpec = explicitRunnerSpec("critic");
   const critic = criticSpec ? makeLlmCritic(textRunnerFor(criticSpec).run, `critic:${criticSpec.model ?? criticSpec.vendor}`) : undefined;
   if (criticSpec) emit?.("note", "critic", `LLM critic active: ${criticSpec.model ?? criticSpec.vendor} grades every worker answer`);
+  // Shadow-log every completed task (model + verdict + timing) — the routing phase's evidence base.
+  const workerSpec = resolveRunnerSpec("worker");
   const outcome = await coordinate(nodes, makeWorker, new MemoryLibrarian(adapter, cfg.project), {
     concurrency: cfg.concurrency,
     maxRetries: cfg.maxRetries,
     critic,
     emit,
+    shadow: (r) => shadowLog({ ts: new Date().toISOString(), runId, project: cfg.project, model: workerSpec.model ?? workerSpec.vendor, ...r }),
   });
   if (cfg.out) {
     mkdirSync(cfg.out, { recursive: true });

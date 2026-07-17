@@ -2,6 +2,7 @@
 // prerequisites found; independent tasks within a level run concurrently up to a cap). A Critic grades
 // each answer and self-repair retries the rejected ones. Per-task PROVENANCE (recalled/explored/
 // produced/contributed/attempts) makes a run auditable — "why did the society produce this?".
+import { performance } from "node:perf_hooks";
 import type { DagNode } from "./dag";
 import { buildLevels } from "./dag";
 import type { Worker, MemoryLibrarian } from "./participants";
@@ -29,6 +30,12 @@ export interface FleetOutcome {
   // fleet partially failed and any metric computed from perWorker is suspect; benches must surface it
   provenance: TaskProvenance[];
 }
+
+// Per-task observational record for the routing phase's shadow-log — the caller (fleet) adds run/model
+// context; the conductor only reports what it saw. Optional: no sink, no records.
+export type ShadowSink = (rec: {
+  task: string; verdictOk: boolean; reason: string; attempts: number; ms: number; explored: number; resultChars: number;
+}) => void;
 
 // A Critic grades a worker's answer; the Conductor retries rejected tasks (self-repair).
 // grade may be async (M5's LLM critic calls a model); the heuristic stays sync — both get awaited.
@@ -68,7 +75,7 @@ export async function coordinate(
   nodes: DagNode[],
   makeWorker: (id: string) => Worker,
   librarian: MemoryLibrarian,
-  opts: { concurrency?: number; maxRetries?: number; critic?: Critic; emit?: Emit } = {},
+  opts: { concurrency?: number; maxRetries?: number; critic?: Critic; emit?: Emit; shadow?: ShadowSink } = {},
 ): Promise<FleetOutcome> {
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   const maxRetries = Math.max(0, opts.maxRetries ?? 0); // 0 = no self-repair (original behaviour)
@@ -82,6 +89,7 @@ export async function coordinate(
   let rejected = 0;
 
   const runNode = async (node: DagNode) => {
+    const t0 = performance.now();
     // intent (A): deterministic "about to do X" — the timeline is complete even if the worker never narrates.
     emit?.("intent", node.id, `${node.id} starting: ${oneLine(node.question)}`, { nodeId: node.id, parentNode: node.dependsOn });
     const injectEnd = log.start("brain.inject", node.id); // pull: recall + graph-expand before the worker runs
@@ -110,6 +118,10 @@ export async function coordinate(
     } else {
       emit?.("overlap", node.id, `${node.id} result rejected (${verdict.reason}) — NOT captured to the brain`, { nodeId: node.id });
     }
+    opts.shadow?.({
+      task: node.id, verdictOk: verdict.ok, reason: verdict.reason, attempts,
+      ms: performance.now() - t0, explored: res.explored.length, resultChars: res.result.length,
+    });
     return { node, ctx, res, learnedId, attempts, verdict };
   };
 
