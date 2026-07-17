@@ -25,6 +25,8 @@ export interface FleetOutcome {
   perWorker: { id: string; explored: Exploration[] }[];
   reuses: number;
   repairs: number; // tasks that needed more than one attempt (self-repair kicked in)
+  rejected: number; // tasks whose FINAL result the critic rejected (not captured) — nonzero means the
+  // fleet partially failed and any metric computed from perWorker is suspect; benches must surface it
   provenance: TaskProvenance[];
 }
 
@@ -77,6 +79,7 @@ export async function coordinate(
   const provenance: TaskProvenance[] = [];
   let reuses = 0;
   let repairs = 0;
+  let rejected = 0;
 
   const runNode = async (node: DagNode) => {
     // intent (A): deterministic "about to do X" — the timeline is complete even if the worker never narrates.
@@ -107,7 +110,7 @@ export async function coordinate(
     } else {
       emit?.("overlap", node.id, `${node.id} result rejected (${verdict.reason}) — NOT captured to the brain`, { nodeId: node.id });
     }
-    return { node, ctx, res, learnedId, attempts };
+    return { node, ctx, res, learnedId, attempts, verdict };
   };
 
   const levels = buildLevels(nodes);
@@ -118,6 +121,7 @@ export async function coordinate(
     for (const r of done) {
       if (r.ctx.hitIds.length > 0) reuses++;
       if (r.attempts > 1) repairs++;
+      if (!r.verdict.ok) rejected++;
       perWorker.push({ id: r.node.id, explored: r.res.explored });
       provenance.push({
         task: r.node.id,
@@ -129,7 +133,7 @@ export async function coordinate(
       });
     }
   }
-  return { perWorker, reuses, repairs, provenance };
+  return { perWorker, reuses, repairs, rejected, provenance };
 }
 
 export interface SessionMetrics {

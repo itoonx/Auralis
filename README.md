@@ -97,8 +97,10 @@ A/B: same reader, same judge, only the memory layer varies:
 **Ranking** — earned trust + citations vs plain relevance: precision@1 **25% → 75%**.
 
 <sub>Controlled single-run measurements on our own instrument (internal judge, identical across arms) —
-methodology, caveats, and every other number: [docs/proven.md](docs/proven.md). We don't quote
-cross-system leaderboard comparisons; different readers/judges make them theatre.</sub>
+methodology, caveats, and every other number: [docs/proven.md](docs/proven.md). The 93.3 vs 90.0 delta
+(3.3 pts) sits inside the measured noise band (±1.5 across 3× runs, ~6% single-run reader variance) —
+read it as *ties full context at 12.9× fewer tokens*, not as a win. We don't quote cross-system
+leaderboard comparisons; different readers/judges make them theatre.</sub>
 
 ## Measured, not asserted
 

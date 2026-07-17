@@ -6,13 +6,13 @@ numbers are real but **directional** — each is from a single non-deterministic
 | What | Result |
 |---|---|
 | **Agents share instead of repeat** | redundant re-reads → **0**; files opened 19 → 14 |
-| **They coordinate as a team** | 3-task run, redundant work fell **53%** (17 → 8) |
+| **They coordinate as a team** | 3-task run, redundant work fell **53%** (17 → 8) <sub>(single run; the 2026-07-17 multi-trial bench (n=5, pinned tasks, default 8-turn budget) could NOT reproduce a stable magnitude — mean 24% all-tools / 53% Read-only, sd ~130/65, with 16/30 worker runs critic-rejected. Directional only until trials come back clean; the bench now flags this itself)</sub> |
 | **Memory outlives the session** | separate process recalled prior findings, opened **1** file where a cold run opened **9** |
 | **Works on any codebase** | pointed at Express (one env var, no code change) — still cut redundant work ~two-thirds |
 | **Real-time sharing** | live pushes 6, teammate pulled & hit 4/6, redundant reads 4 → **0** |
 | **Deterministic dedup** | 3-worker parallel run, **prevented-dupes = 4**, read-redundant = 0 |
 | **Prod mode is ~2× faster** | skip the A/B baseline arm: 398s → 219s (~45%) |
-| **Coordination overhead is negligible** | `oracle.claim` mean **2.4ms** vs `worker.run` = 99.9% of wall |
+| **Coordination overhead is negligible** | `oracle.claim` mean **2.4ms** vs `worker.run` = 99.9% of wall <sub>(single run 2026-07-06, commit `e4ea854` — its raw artifact is gone; the surviving 2026-07-14 artifact reads 89.8% raw / **99.8%** once one suspend-inflated span is excluded, `oracle.claim` mean 14.7ms. Direction solid, exact digits vary — `pnpm bench` now reports this as mean ± sd per run)</sub> |
 | **The brain refines & connects** | distillation collapsed two sign-in notes into one vetted finding; graph recall pulled a `SessionToken` finding into a *login* query via a shared `auth/session.ts` node (recall 1 → 2) |
 | **Build mode is reliable** | built a working rock-paper-scissors game **3/3** runs (acceptance PASS each; baseline analyse-mode wrote **0** files) |
 | **Claim prevents clobbers** | two workers forced onto one file — claim ON: **prevented-clobbers=1**, collisions=0; claim OFF: **collisions=1** |
@@ -35,6 +35,10 @@ numbers are real but **directional** — each is from a single non-deterministic
   but they'll vary with how much the tasks overlap and how faithfully the agents reuse what they're handed.
   `pnpm bench` turns any one of them into a mean ± spread; the deterministic tests (50, in CI) pin down the
   *mechanisms*, not the magnitudes.
+- **Two instruments are exactly reproducible, not directional:** `pnpm bench-rank` and `pnpm bench-graph`
+  are LLM-free and embedding-free — double-run 2026-07-17 produced byte-identical output, so their n=1 is
+  exact. Their honest weakness is corpus size (4 queries quantize precision@1 into 25-point steps); the
+  upgrade is a larger labelled corpus, not repeat trials.
 - **The heuristic paths are shallow by design.** Distillation clustering, graph extraction, and the Critic
   each ship a free deterministic heuristic and an optional Claude Code path (`*_LLM=1`) for real quality.
   The heuristics keep everything offline-safe and CI-green; reach for the LLM path when the output matters.

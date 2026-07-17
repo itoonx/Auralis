@@ -15,10 +15,12 @@ Where the platform is headed. Ordered by leverage (timing tells us which knob ac
   RRF+trust ranking, citation feedback, forgetting-as-ranking, bi-temporal validity with `as_of` queries,
   the sleep job (snapshot → dedup → LLM contradiction judgment writing `invalid_at`), and atomic
   pre-mutation snapshots. Next on this axis: let real usage accumulate and watch the lifecycle work.
-- **Model / turn routing** — *highest leverage.* Timing proves the LLM call is 99.9% of wall-clock, so the
-  real cost lever is *which* model runs *which* task: a small/cheap model for the Planner and easy subtasks,
-  Opus reserved for hard analysis, plus a per-task turn budget. This is the one change measurement says is
-  worth it.
+- **Model / turn routing** — *highest leverage.* Timing proves the LLM call dominates wall-clock —
+  **97.1% ± 1.0 (n=5 trials, 2026-07-17 multi-trial bench;** the old "99.9%" was a single 2026-07-06 run) —
+  so the real cost lever is *which* model runs *which* task: a small/cheap model for the Planner and easy
+  subtasks, Opus reserved for hard analysis, plus a per-task turn budget. This is the one change measurement
+  says is worth it. Per the 2026-07-17 brainstorm decision: ship it correctness-gated — CI green → shadow-log
+  (quality, not just cost) → canary + kill-switch → the multi-trial bench as merge gate, on CLEAN trials only.
 - **Parallel writing beyond disjoint files** — build mode (above) already coordinates *writing* when each
   worker owns a distinct file: the claim registry generalised from "who reads this file" to "who writes it",
   proven on real builds. The open part is **overlapping edits** to a shared file — worktrees + clean merges,
@@ -30,4 +32,14 @@ Where the platform is headed. Ordered by leverage (timing tells us which knob ac
 - **Heterogeneous runtimes in one fleet** — the `AgentRunner` seam makes GPT / Gemini / Aider runners
   drop-in; the work is writing each runner and its per-runtime claim intercept. They already share one brain
   and one claim registry.
-- **Trustworthy numbers** — replace the single-run (n=1) proofs above with `pnpm bench` mean ± spread.
+- **Trustworthy numbers** — *instrument DONE, first distribution measured (2026-07-17).* `pnpm bench` now
+  pins the task set (`benchmarks/core.json`), hard-isolates its scratch oracle, captures per-arm timing, and
+  counts what used to be silent (worker early-stops, critic rejections) — a trial with failures is flagged
+  suspect instead of quietly feeding the metric. First 5-trial run at defaults:
+  - **LLM share of wall-clock: 97.1% ± 1.0** — robust; the routing premise above survives with a real spread.
+  - **Redundancy reduction: NOT yet a trustworthy number** — mean 24% (all-tools) / 53% (Read-only) with
+    sd ~130/65 and range −200%..+100%. Cause is visible in the new counters: **16/30 worker runs rejected**
+    (mostly `maxTurns=8` early-stops), zero clean trials, and tiny redundancy counts (1–6) make the ratio
+    quantization noise. The −53% headline in `proven.md` stays historical/directional.
+  - Next on this axis: make trials come back clean (turn budget / task-completion reliability — the same
+    reliability the routing gate needs), then re-run for a quotable reduction distribution.
