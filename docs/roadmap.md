@@ -41,5 +41,11 @@ Where the platform is headed. Ordered by leverage (timing tells us which knob ac
     sd ~130/65 and range −200%..+100%. Cause is visible in the new counters: **16/30 worker runs rejected**
     (mostly `maxTurns=8` early-stops), zero clean trials, and tiny redundancy counts (1–6) make the ratio
     quantization noise. The −53% headline in `proven.md` stays historical/directional.
-  - Next on this axis: make trials come back clean (turn budget / task-completion reliability — the same
-    reliability the routing gate needs), then re-run for a quotable reduction distribution.
+  - **Second n=5 (2026-07-18, instrument v2: `AURALIS_MAX_TURNS=12` + core.json without the
+    self-defeating "Be concise"): reduction 58.1% ± 12.9 (band 40.0–71.4) all-tools / 41.7% ± 28.9
+    Read-only · LLM share 97.6% ± 1.4 · reuses = 2 in every trial.** The spread tightened 10× (sd 130→13)
+    — but 11/30 runs still rejected, so ZERO clean trials and the S1 routing-gate band stays PENDING.
+  - Shadow-log's first catch (per-item, both arms visible): **8/11 rejects are answer TRUNCATION on the
+    long-form tasks** — results 5.7–8.5k chars cut mid-sentence, an output-length ceiling, NOT turns
+    (accepted answers top out ~6.3k); 2 residual early-stops; 1 infra error the poison-guard correctly
+    kept out of the brain. Next fix on this axis: the truncation ceiling, then re-run for the clean band.

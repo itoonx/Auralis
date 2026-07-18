@@ -6,7 +6,7 @@ numbers are real but **directional** — each is from a single non-deterministic
 | What | Result |
 |---|---|
 | **Agents share instead of repeat** | redundant re-reads → **0**; files opened 19 → 14 |
-| **They coordinate as a team** | 3-task run, redundant work fell **53%** (17 → 8) <sub>(single run; the 2026-07-17 multi-trial bench (n=5, pinned tasks, default 8-turn budget) could NOT reproduce a stable magnitude — mean 24% all-tools / 53% Read-only, sd ~130/65, with 16/30 worker runs critic-rejected. Directional only until trials come back clean; the bench now flags this itself)</sub> |
+| **They coordinate as a team** | 3-task run, redundant work fell **53%** (17 → 8) <sub>(single run; the 2026-07-17 multi-trial bench (n=5, pinned tasks, default 8-turn budget) could NOT reproduce a stable magnitude — mean 24% all-tools / 53% Read-only, sd ~130/65, with 16/30 worker runs critic-rejected. Directional only until trials come back clean; the bench now flags this itself. Instrument v2 — 12-turn budget, de-conflicted prompts, 2026-07-18 — reads **58.1% ± 12.9** (n=5, band 40.0–71.4): direction and rough magnitude reproduce; the clean-trial band still awaits a truncation fix)</sub> |
 | **Memory outlives the session** | separate process recalled prior findings, opened **1** file where a cold run opened **9** |
 | **Works on any codebase** | pointed at Express (one env var, no code change) — still cut redundant work ~two-thirds |
 | **Real-time sharing** | live pushes 6, teammate pulled & hit 4/6, redundant reads 4 → **0** |
