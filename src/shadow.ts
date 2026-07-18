@@ -17,6 +17,10 @@ export interface ShadowRec {
   ms: number; // whole task: inject + worker turns (incl. retries) + capture
   explored: number;
   resultChars: number;
+  turns?: number; // SDK turn count of the final attempt
+  endReason?: string; // success | error_max_turns | … — the truncation forensics fields
+  outputTokens?: number;
+  stopReason?: string; // last assistant message's stop_reason — "max_tokens" = per-message ceiling confirmed
 }
 
 export function shadowLog(rec: ShadowRec): void {

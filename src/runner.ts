@@ -9,6 +9,9 @@ import { resolve, sep } from "node:path";
 // load the target repo's .claude hooks — without the mark, session-capture recorded a WORKER's prompt as a
 // human instruction at trust 1.0 (found live). Workers' own narration already flows via onStep/the timeline.
 process.env.AURALIS_FLEET = "1";
+// NOTE (2026-07-18): workers DO inherit the operator session's CLAUDE_EFFORT env. Stripping it was tried
+// bundled with a prompt change and the pair measured WORSE (8→14 rejects) — reverted; the measured v2
+// baseline keeps inheritance. Proper fix = explicit per-role `effort` option (routing S2), one variable per run.
 
 export interface Exploration {
   tool: string;
@@ -17,6 +20,10 @@ export interface Exploration {
 export interface RunResult {
   result: string;
   explored: Exploration[];
+  turns?: number; // SDK num_turns — how much of the turn budget the task actually used
+  endReason?: string; // "success" | "error_max_turns" | "error_during_execution" | … — why the session ended
+  outputTokens?: number; // CUMULATIVE session output tokens (result.usage) — not per-message
+  stopReason?: string; // stop_reason of the LAST assistant message — "max_tokens" here is the per-message-ceiling smoking gun
 }
 export interface AgentRunner {
   run(prompt: string): Promise<RunResult>;
@@ -49,6 +56,10 @@ export class ClaudeCodeRunner implements AgentRunner {
     const build = !!this.opts.build;
     const cwd = resolve(this.opts.cwd);
     let result = "";
+    let turns: number | undefined;
+    let endReason: string | undefined;
+    let outputTokens: number | undefined;
+    let stopReason: string | undefined;
     const options: any = {
       cwd,
       // build mode also lets the worker WRITE its owned file; analyse mode stays read-only.
@@ -96,6 +107,7 @@ export class ClaudeCodeRunner implements AgentRunner {
       for await (const m of query({ prompt, options })) {
         const msg: any = m;
         if (msg.type === "assistant") {
+          if (msg.message?.stop_reason) stopReason = String(msg.message.stop_reason); // last one wins — the final answer's stop
           for (const block of msg.message?.content ?? []) {
             if (block?.type === "tool_use") {
               const target = targetOf(block.name, block.input);
@@ -103,17 +115,26 @@ export class ClaudeCodeRunner implements AgentRunner {
               this.opts.onStep?.(block.name, target); // narrate EVERY tool call (incl. brain calls) live
             }
           }
-        } else if (msg.type === "result" && msg.subtype === "success") {
-          result = String(msg.result ?? "");
+        } else if (msg.type === "result") {
+          // Every result subtype carries the run's vitals — capture them so the shadow-log can tell
+          // turn-cap truncation from output-cap truncation from real completion (2026-07-18 forensics).
+          turns = typeof msg.num_turns === "number" ? msg.num_turns : undefined;
+          endReason = String(msg.subtype ?? "unknown");
+          outputTokens = typeof msg.usage?.output_tokens === "number" ? msg.usage.output_tokens : undefined;
+          if (msg.subtype === "success") result = String(msg.result ?? "");
         }
       }
     } catch (err) {
       // The agent hit its turn/budget cap or errored mid-run. The exploration captured before the
       // throw is what the redundancy metric needs, so keep it and note the early stop.
+      endReason ??= (err as Error).message;
       if (!result) result = `(worker stopped early: ${(err as Error).message})`;
     }
+    // Error subtypes (error_max_turns, error_during_execution, …) end the stream with NO result text —
+    // name the reason instead of returning a silent empty string the critic can only call "empty".
+    if (!result) result = `(worker stopped early: ${endReason ?? "no result message"})`;
     // A blocked Read never happened — drop it so redundancy counts prevention, not a phantom read.
-    return { result, explored: denied.size ? explored.filter((e) => !denied.has(e.target)) : explored };
+    return { result, explored: denied.size ? explored.filter((e) => !denied.has(e.target)) : explored, turns, endReason, outputTokens, stopReason };
   }
 }
 

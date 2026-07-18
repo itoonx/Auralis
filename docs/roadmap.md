@@ -48,4 +48,15 @@ Where the platform is headed. Ordered by leverage (timing tells us which knob ac
   - Shadow-log's first catch (per-item, both arms visible): **8/11 rejects are answer TRUNCATION on the
     long-form tasks** — results 5.7–8.5k chars cut mid-sentence, an output-length ceiling, NOT turns
     (accepted answers top out ~6.3k); 2 residual early-stops; 1 infra error the poison-guard correctly
-    kept out of the brain. Next fix on this axis: the truncation ceiling, then re-run for the clean band.
+    kept out of the brain.
+  - **Best measured band so far — v2 instrument @ 16-turn budget (n=5, 2026-07-18): reduction
+    70.6% ± 20.4 (42.9–90.0), rejects 8/30.** LLM share is rock-steady across every run: 96.4–97.6%.
+  - **Negative result, recorded on purpose (2026-07-18):** a bundled v3 change (symmetric
+    "finish every section" answer rule + stripping the inherited `CLAUDE_EFFORT`) measured WORSE —
+    14/30 rejects, sd blew back up to 53 — and was REVERTED to v2 verbatim. Lesson re-learned: one
+    variable per run; completion-clause prompts push essays INTO the ceiling.
+  - Truncation mechanism status: turn-cap **REFUTED** (truncations at 10–24 turns while accepted runs
+    reach 25); effort-env **REFUTED as deterministic** (A/B probe, n=1/arm, both clean); leading
+    hypothesis = **per-MESSAGE output ceiling** on long final answers. The runner now records the final
+    assistant message's `stop_reason` into the shadow-log — the next n=5 names the mechanism for free
+    (`max_tokens` there = confirmed). Gate rule until then: quote the v2@16t band; S1 waits for clean trials.

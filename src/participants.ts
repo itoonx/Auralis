@@ -57,6 +57,10 @@ export class Worker extends BaseParticipant {
         `Only explore what is genuinely new after checking the brain.${seed}\n\n---\nYour task: ${question}`
       );
     }
+    // REVERTED to the v2 wording (2026-07-18): a symmetric "finish every section you start" rule was
+    // tried and made truncation WORSE (8→14 rejects — the completion clause pushes longer essays into
+    // the per-message output ceiling). Known residual: this baseline says "answer concisely" while the
+    // injected variant doesn't — an A/B asymmetry to fix ONLY in isolation, one variable per run.
     return injectedContext
       ? `You are analysing a codebase. A teammate has ALREADY explored part of it and recorded the findings below. ` +
         `Do NOT re-read files your teammate already covered — trust their findings and only explore what is genuinely new to YOUR task.\n\n` +

@@ -35,6 +35,7 @@ export interface FleetOutcome {
 // context; the conductor only reports what it saw. Optional: no sink, no records.
 export type ShadowSink = (rec: {
   task: string; verdictOk: boolean; reason: string; attempts: number; ms: number; explored: number; resultChars: number;
+  turns?: number; endReason?: string; outputTokens?: number; stopReason?: string;
 }) => void;
 
 // A Critic grades a worker's answer; the Conductor retries rejected tasks (self-repair).
@@ -121,6 +122,7 @@ export async function coordinate(
     opts.shadow?.({
       task: node.id, verdictOk: verdict.ok, reason: verdict.reason, attempts,
       ms: performance.now() - t0, explored: res.explored.length, resultChars: res.result.length,
+      turns: res.turns, endReason: res.endReason, outputTokens: res.outputTokens, stopReason: res.stopReason,
     });
     return { node, ctx, res, learnedId, attempts, verdict };
   };
