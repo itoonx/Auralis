@@ -11,7 +11,7 @@
 //   auralis backup [--install|--uninstall]   WAL-safe brain snapshot; --install schedules it daily
 //   auralis doctor              docker? compose file? ports? brain reachable? token? reboot-ready?
 import { execSync, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -157,6 +157,72 @@ async function sidecarStatus() {
   console.log(`  autostart    ${existsSync(SIDECAR_PLIST) ? "✅ installed" : "✗ not installed (auralis sidecar --install)"}`);
 }
 
+// -- install: wire auralis into Claude Code CLI (hooks + statusline + MCP), idempotent + reversible ------
+// The stack (setup, above) is only half the install — the other half lives under ~/.claude: the
+// session-capture hook (recall on prompt, capture on write/stop), the statusline, and the MCP server that
+// exposes analyze/build/brainstorm to EVERY project. This wires all three in one shot. CLAUDE_CONFIG_DIR
+// is honoured (Claude Code's own relocation env) so it's testable against a throwaway dir.
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+const CLAUDE_HOOKS = join(CLAUDE_DIR, "hooks");
+const CLAUDE_SETTINGS = join(CLAUDE_DIR, "settings.json");
+const CAPTURE_LINK = join(CLAUDE_HOOKS, "auralis-session-capture.mjs");
+const STATUS_LINK = join(CLAUDE_HOOKS, "auralis-statusline.mjs");
+const CAPTURE_CMD = `node ${CAPTURE_LINK}`;
+const STATUS_CMD = `node ${STATUS_LINK}`;
+// event → matcher: the capture runs on every prompt & stop, but only on WRITE tools (not every read).
+const HOOK_EVENTS = [["UserPromptSubmit", null], ["PostToolUse", "Write|Edit"], ["Stop", null]];
+const hasCapture = (arr) => (arr ?? []).some((g) => (g.hooks ?? []).some((h) => String(h.command ?? "").includes("auralis-session-capture")));
+const readJson = (p, fb) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return fb; } };
+
+function installCli() {
+  // 1 · hook + statusline symlinks — the hook's realpath-aware isMain makes a symlinked install run main().
+  mkdirSync(CLAUDE_HOOKS, { recursive: true });
+  for (const [target, link] of [[join(ROOT, "hooks", "session-capture.mjs"), CAPTURE_LINK], [join(ROOT, "hooks", "statusline.mjs"), STATUS_LINK]]) {
+    try { unlinkSync(link); } catch { /* not there yet — fine */ }
+    symlinkSync(target, link);
+  }
+  console.log(`   ✅ hooks symlinked → ${CLAUDE_HOOKS}`);
+
+  // 2 · settings.json — add the capture hook to each event (skip if already there) + the statusline.
+  const s = readJson(CLAUDE_SETTINGS, {});
+  s.hooks ??= {};
+  for (const [event, matcher] of HOOK_EVENTS) {
+    s.hooks[event] ??= [];
+    if (hasCapture(s.hooks[event])) continue;
+    const entry = { hooks: [{ type: "command", command: CAPTURE_CMD }] };
+    if (matcher) entry.matcher = matcher;
+    s.hooks[event].push(entry);
+  }
+  const curSL = String(s.statusLine?.command ?? "");
+  if (!curSL || curSL.includes("auralis-statusline")) s.statusLine = { type: "command", command: STATUS_CMD };
+  else console.log(`   ⚠ keeping your existing statusLine — to use auralis's: set statusLine.command = "${STATUS_CMD}"`);
+  mkdirSync(CLAUDE_DIR, { recursive: true });
+  writeFileSync(CLAUDE_SETTINGS, JSON.stringify(s, null, 2) + "\n");
+  console.log(`   ✅ settings.json wired (UserPromptSubmit · PostToolUse[Write|Edit] · Stop · statusLine)`);
+
+  // 3 · MCP at user scope — analyze/build/brainstorm from ANY project. Add-and-tolerate = idempotent.
+  const r = sh(["claude", "mcp", "add", "--scope", "user", "auralis", "--", "pnpm", "-C", ROOT, "mcp"], { stdio: "pipe", encoding: "utf8" });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+  if (r.status === 0) console.log("   ✅ MCP 'auralis' registered (user scope) — analyze/build/brainstorm everywhere");
+  else if (/already exists/i.test(out)) console.log("   ✅ MCP 'auralis' already registered (user scope)");
+  else console.log(`   ⚠ register the MCP manually: claude mcp add --scope user auralis -- pnpm -C ${ROOT} mcp`);
+
+  console.log("\n✓ Claude Code CLI wired — open a NEW session (or restart Claude Code) for it to load.\n");
+}
+
+function uninstallCli() {
+  for (const link of [CAPTURE_LINK, STATUS_LINK]) { try { unlinkSync(link); } catch { /* already gone */ } }
+  const s = readJson(CLAUDE_SETTINGS, {});
+  for (const ev of Object.keys(s.hooks ?? {})) {
+    s.hooks[ev] = s.hooks[ev].filter((g) => !(g.hooks ?? []).some((h) => String(h.command ?? "").includes("auralis-session-capture")));
+    if (!s.hooks[ev].length) delete s.hooks[ev];
+  }
+  if (String(s.statusLine?.command ?? "").includes("auralis-statusline")) delete s.statusLine;
+  writeFileSync(CLAUDE_SETTINGS, JSON.stringify(s, null, 2) + "\n");
+  sh(["claude", "mcp", "remove", "--scope", "user", "auralis"], { stdio: "ignore" });
+  console.log("✓ auralis unwired from Claude Code CLI (hooks, statusLine, MCP removed)");
+}
+
 // -- setup: zero → running, one command, idempotent (re-run any time; every step skips what exists) ------
 const envOracleHas = (key) => existsSync(ENV_ORACLE) && readFileSync(ENV_ORACLE, "utf8").includes(`${key}=`);
 
@@ -227,6 +293,10 @@ async function setup() {
       } catch { console.log("   ⚠ reembed didn't finish — run later: auralis reembed"); }
     } else console.log("   ⚠ still downloading — later, when `auralis sidecar` shows ✅, run: auralis reembed");
   }
+
+  // 7 · Claude Code CLI integration — the other half of the install: hooks, statusline, MCP (idempotent)
+  console.log("⑧ Claude Code CLI (hooks · statusline · MCP)");
+  installCli();
 
   console.log("\n✓ setup complete — `auralis doctor` any time to re-check\n");
   await doctor();
@@ -334,10 +404,15 @@ switch (cmd) {
     else if (rest.includes("--uninstall")) uninstallSidecar();
     else await sidecarStatus();
     break;
+  case "install":
+    if (rest.includes("--uninstall")) uninstallCli();
+    else installCli();
+    break;
   case "doctor": await doctor(); break;
   default:
     console.log("auralis — production stack CLI\n");
-    console.log("  auralis setup [--no-semantic]  ONE command: prereq check → deps → auth → sidecar → stack → backup");
+    console.log("  auralis setup [--no-semantic]  ONE command: prereq → deps → auth → sidecar → stack → backup → Claude CLI");
+    console.log("  auralis install [--uninstall]  wire (or remove) the Claude Code CLI bits only: hooks · statusline · MCP");
     console.log("  auralis start [--share]   up as daemons (+public tunnel with --share)");
     console.log("  auralis stop              down (brain data survives)");
     console.log("  auralis status            services + brain stats");

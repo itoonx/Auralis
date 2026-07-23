@@ -108,40 +108,37 @@ The repo ships its own wiring (`.claude/settings.json`). Open Claude Code anywhe
   Trivial prompts, file edits, commits are timeline-only or dropped (git already records them).
 - Nothing to configure; a dead oracle never breaks your session (fail-silent by design).
 
-### 4b · Capture from *other* repos — global install (symlink, not a direct path)
+### 4b · Everywhere else — one command
 
-To feed the same brain from every project you work on, register the hook globally — **via a symlink**:
+To feed the same brain from *every* project and get the fleet tools everywhere, wire the Claude Code CLI
+in one shot:
 
 ```bash
-mkdir -p ~/.claude/hooks
-ln -sf /path/to/Auralis/hooks/session-capture.mjs ~/.claude/hooks/auralis-session-capture.mjs
+node bin/auralis.mjs install          # hooks (recall + capture) · statusline · MCP (user scope)
+# undo any time:  node bin/auralis.mjs install --uninstall
 ```
 
-then in `~/.claude/settings.json` add to `UserPromptSubmit`, `Stop`, and `PostToolUse` hooks:
+It's idempotent (re-run safe, never double-wires) and already part of `auralis setup`. Open a **new**
+Claude Code session for it to load. What it wires:
 
-```json
-{ "type": "command", "command": "node /Users/you/.claude/hooks/auralis-session-capture.mjs" }
-```
+- **Hooks** — symlinks `session-capture.mjs` + `statusline.mjs` into `~/.claude/hooks/` and adds them to
+  `UserPromptSubmit`, `PostToolUse` (Write/Edit), and `Stop` in `~/.claude/settings.json`.
+- **MCP** — `claude mcp add --scope user auralis`, so every project gains the fleet tools (below).
 
-> **Why the symlink matters:** the hook detects double-installs ("this repo already wires me — stand
-> down") by checking whether it was invoked from inside the project. A global entry that points
-> *directly* at the repo file defeats that check — both copies run and **every memory lands twice**
-> (we shipped that bug to ourselves; the brain needed surgery). The symlink lives outside the repo,
-> so the guard works: global stands down inside Auralis, runs everywhere else.
+> **Why a symlink, not a direct path:** the hook detects double-installs ("this repo already wires me —
+> stand down") by checking whether it ran from inside the project. A global entry pointing *directly* at
+> the repo file defeats that check — both copies run and **every memory lands twice** (we shipped that bug
+> to ourselves; the brain needed surgery). `install` uses the symlink, so the guard holds: global stands
+> down inside Auralis, runs everywhere else.
 
-### 4c · Drive the fleet — MCP tools
+### 4c · The fleet tools you gain (MCP)
 
-Add to your project's `.mcp.json` (or `~/.claude/mcp.json` for everywhere):
-
-```json
-{ "mcpServers": { "auralis": { "command": "pnpm", "args": ["-C", "/path/to/Auralis", "mcp"] } } }
-```
-
-Your session gains two tools (details: [mcp.md](mcp.md)):
+After `install`, every session has three tools (details: [mcp.md](mcp.md)):
 - **`analyze`** `(goal, dir?, project?)` — a fleet analyses a codebase and answers, sharing one brain.
 - **`build`** `(goal, dir, accept?)` — a fleet writes a small program into `dir`, verifies it, reworks on FAIL.
+- **`brainstorm`** `(topic, mode?)` — a multi-model panel converges on a decision brief, learned into the brain.
 
-Both stream live progress; builds take minutes and bill your Claude account (workers are real sessions).
+All stream live progress; builds/brainstorms take minutes and bill the configured providers (workers are real sessions).
 
 ### 4d · Everyday commands
 
