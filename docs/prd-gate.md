@@ -1,9 +1,15 @@
 # PRD — Gate-first generated verifier: an objective check per build, not 4 canned specs
 
-Date: 2026-07-24 · Status: prototype built + measured (`src/gate.ts`, scratchpad/gate-experiment.mts);
-milestones below not started · Basis: adopted from disler/fusion-harness `/auto-validate` (memory
-`fusion-harness-adopt`). Build on the existing acceptance seam (`src/accept.ts runAcceptance`,
+Date: 2026-07-24 (updated 2026-07-25) · Basis: adopted from disler/fusion-harness `/auto-validate` (memory
+`fusion-harness-adopt`). Built on the existing acceptance seam (`src/accept.ts runAcceptance`,
 `src/build.ts buildWithRework`), not a new mechanism.
+
+**Status:** M1 (`5de21fb`) + M2/M3 (`b50beef`) **SHIPPED** — gate module, reliable gen (10/10 valid 1st try),
+wired opt-in into build mode (keeps the 4 fixed specs as fallback), proven end-to-end on a non-canned build
+(gate generated → fleet built → gate executed real files → PASS, ground truth agreed). M4 came free with M3
+(gate FAIL lines feed the rework loop). **M5 DEFERRED (YAGNI)** — see M5's row for the triggers that should
+re-open it. **M6 (bench) = the recommended next step.** Load-bearing lesson: generate the gate BEFORE the
+fleet build (a one-shot SDK call after the fleet's heavy concurrent use fails silently).
 
 ## The problem, measured
 
@@ -38,11 +44,11 @@ both must be handled (M2).
 
 | # | Milestone | Real test (the gate on the milestone itself) |
 |---|---|---|
-| **M1** | **Land the module + unit tests.** `test/gate.test.ts`: baseline-red, malformed-crash detection, PASS/FAIL parse, `gateInvalidReason`. Commit `src/gate.ts`. | `pnpm test` green incl. new gate tests |
-| **M2** | **Reliable gate generation.** Move the experiment's validate+retry into `generateValidGate(request, cwd, run, {tries})` in gate.ts: generate → `gateInvalidReason` → retry on invalid/throw; fix the architect turn-cap (bump gate-gen `maxTurns`, or a dedicated gate runner spec). | measure valid-on-attempt over ≥10 varied tasks; report the rate |
-| **M3** | **Wire into build mode (opt-in).** `buildWithRework` (`src/build.ts:26,35,68`) takes an optional `gate` alongside `accept`: if set, generate the gate BEFORE the build, assert baseline-red, run it after each attempt instead of/alongside `runAcceptance`. MCP `build` tool + `run.ts` expose it. Fall back to the 4 fixed specs. | one **real end-to-end fleet build** on a non-canned task, gate gen→red→build→green |
-| **M4** | **Structured FAIL → rework feedback.** `src/conductor.ts:104` today feeds a soft "reviewer rejected (reason)". In gated build mode, feed the gate's `failLines` verbatim (expected/found/at/fix). | a build that fails round 1 fixes the RIGHT thing round 2, fewer rounds than the soft-feedback baseline |
-| **M5** | **Triage + one gate self-repair** (fusion's guard). After K fails, a diagnostician reads real state (not the worker's claims); if the gate itself is defective it repairs it ONCE (old kept, re-run free, checks never weakened). | a deliberately over-strict gate → triage repairs → loop ends green without weakening a real check |
+| **M1 ✅** | **Land the module + unit tests.** `test/gate.test.ts`: baseline-red, malformed-crash detection, PASS/FAIL parse, `gateInvalidReason`. Commit `src/gate.ts`. | ✅ 8 tests green (`5de21fb`) |
+| **M2 ✅** | **Reliable gate generation.** `generateValidGate` (retry on invalid/throw) + `textRunnerFor` optional `maxTurns`. | ✅ **10/10 valid on 1st try** at maxTurns=4 (`b50beef`) |
+| **M3 ✅** | **Wire into build mode (opt-in).** `buildWithRework` takes optional `gate`; generate BEFORE the build (fresh SDK — post-fleet gen fails silently), run it after each attempt; MCP `build` tool `gate:true`; fall back to the 4 fixed specs. | ✅ real e2e build of `rev.js`: gate→build→PASS, ground truth agreed (`b50beef`) |
+| **M4 ✅** | **Structured FAIL → rework feedback.** Gate `failLines` (expected/found/at/fix) flow into the rework loop via `acc.failLines`. | ✅ free with M3; A/B vs soft feedback → M6 |
+| **M5 ⏸ DEFERRED (2026-07-25, YAGNI)** | **Triage + one gate self-repair** (fusion's guard). After K fails, a diagnostician reads real state (not the worker's claims); if the gate itself is defective it repairs it ONCE (old kept, re-run free, checks never weakened). **RE-OPEN when:** gate-gen reliability drops · the builder oscillates/stuck-fails a gate across rounds · a gate is itself wrong (demands something never asked) · or building autonomous S4 (unattended — a wrong gate burns the whole budget in a loop). Prerequisite for SAFE autonomy. | a deliberately over-strict gate → triage repairs → loop ends green without weakening a real check |
 | **M6** | **Gate-vs-critic benchmark** (mean±spread, the bench discipline from `docs/roadmap.md`). Generalise the experiment: N tasks × {correct, planted-defect, report-lies} → false-accept rate (gate vs critic), gate-gen reliability, cost/build. | `pnpm bench-gate` produces a distribution, not n=1 |
 | **M7** | **(stretch) S4-bridge: scoped autonomous build-with-gate.** Now that green is objective, an unattended loop can safely stop. Budget + no-progress killer + human checkpoint (per `[[souls-agent-team-design]]`), on ONE real recurring task. | point at a real small task, run unattended with a token budget; measure delegated-success + cost vs doing it by hand |
 
