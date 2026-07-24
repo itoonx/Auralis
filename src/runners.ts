@@ -87,15 +87,18 @@ export function explicitRunnerSpec(role: Role, root = ROOT): RunnerSpec | null {
 // A tool-less TEXT runner from a spec — thinking, not exploring: claude → the Agent SDK with no tools
 // (reuses the CLI login), anything else → an OpenAI-compatible chat call. Shared by the brainstorm
 // panel and the M5 critic/reviewer so every "pure text" role builds runners exactly one way.
-export function textRunnerFor(spec: RunnerSpec): { name: string; run: (prompt: string) => Promise<string> } {
+export function textRunnerFor(spec: RunnerSpec, opts: { maxTurns?: number } = {}): { name: string; run: (prompt: string) => Promise<string> } {
   const name = spec.model ? `${spec.vendor}:${spec.model}` : spec.vendor;
+  // Default 1 turn (right + cheap for brainstorm/critic). A long single-shot output — a generated gate
+  // script — can spill past one turn and make the SDK throw "max turns (1)"; gate-gen passes a higher cap.
+  const maxTurns = Math.max(1, opts.maxTurns ?? 1);
   if (spec.vendor === "claude") {
     return {
       name,
       run: async (prompt) => {
         const { query } = await import("@anthropic-ai/claude-agent-sdk"); // lazy — no SDK cost in tests
         let out = "";
-        for await (const m of query({ prompt, options: { maxTurns: 1, allowedTools: [], ...(spec.model ? { model: spec.model } : {}) } as any })) {
+        for await (const m of query({ prompt, options: { maxTurns, allowedTools: [], ...(spec.model ? { model: spec.model } : {}) } as any })) {
           const msg: any = m;
           if (msg.type === "result" && msg.subtype === "success") out = String(msg.result ?? "");
         }

@@ -92,9 +92,10 @@ server.tool(
   {
     goal: z.string().describe("what to build, e.g. 'a rock-paper-scissors game in Node'"),
     dir: z.string().describe("the directory to build into (created if missing; kept isolated)"),
-    accept: z.enum(["rps", "todo", "restapi", "calc"]).optional().describe("acceptance spec to verify against, if one fits"),
+    accept: z.enum(["rps", "todo", "restapi", "calc"]).optional().describe("fixed acceptance spec to verify against, if one fits"),
+    gate: z.boolean().optional().describe("generate an OBJECTIVE acceptance gate from the goal and execute it against the built files — verifies ANY build, not just the 4 fixed specs (falls back to `accept` if gate-gen fails)"),
   },
-  async ({ goal, dir, accept }, extra) => {
+  async ({ goal, dir, accept, gate }, extra) => {
     const projectDir = resolve(dir);
     mkdirSync(projectDir, { recursive: true });
     const pkg = resolve(projectDir, "package.json");
@@ -112,7 +113,7 @@ server.tool(
         adapter,
         nodes,
         { projectDir, project: "mcp-build", maxTurns: 15, concurrency: 3, maxRetries: 1, workerPull: true, build: true, onProgress },
-        { accept, retries: 1, projectDir },
+        { accept, gate: gate ? goal : undefined, retries: 1, projectDir },
       );
       const written = [...new Set(shared.outcome.perWorker.flatMap((w) => w.explored).filter((e) => e.tool === "Write" || e.tool === "Edit").map((e) => e.target))];
       if (written.length > 0 || shared.outcome.perWorker.some((w) => w.explored.length > 0)) await writeRetro(adapter, "mcp-build", { goal, mode: "build", pass: acc ? acc.pass : written.length >= 1, reworks: attempts, firstFail, filesWritten: written.length, reuses: shared.outcome.reuses, repairs: shared.outcome.repairs }); // dead run → no lesson

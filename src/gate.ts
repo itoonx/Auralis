@@ -58,6 +58,34 @@ export async function generateGate(request: string, cwd: string, run: (prompt: s
   return extractScript(await run(VALIDATOR(request, resolve(cwd))));
 }
 
+export interface GateGenResult { gate: string; attempts: number; log: string[] }
+
+// Robust gate generation (M2): generate → validate (syntax + baseline-red) → retry on an INVALID gate OR a
+// runner throw (the SDK can throw "max turns" on a long gate — transient). Returns the first valid gate and
+// how many attempts it took (a real reliability signal); throws with the attempt log if none is valid.
+export async function generateValidGate(
+  request: string,
+  cwd: string,
+  run: (prompt: string) => Promise<string>,
+  opts: { tries?: number } = {},
+): Promise<GateGenResult> {
+  const tries = Math.max(1, opts.tries ?? 3);
+  const log: string[] = [];
+  for (let a = 1; a <= tries; a++) {
+    let gate = "";
+    try {
+      gate = await generateGate(request, cwd, run);
+    } catch (e) {
+      log.push(`attempt ${a}: gen error — ${String((e as Error).message).slice(0, 100)}`);
+      continue;
+    }
+    const bad = gateInvalidReason(gate);
+    if (!bad) { log.push(`attempt ${a}: VALID`); return { gate, attempts: a, log }; }
+    log.push(`attempt ${a}: INVALID — ${bad}`);
+  }
+  throw new Error(`no valid gate in ${tries} attempts:\n${log.join("\n")}`);
+}
+
 // Execute a gate script against a workspace. The gate lives OUTSIDE the workspace (the builder can't touch
 // it) but runs with cwd = the workspace, so its relative paths resolve to the built files.
 export function runGate(gateScript: string, workspace: string, timeoutMs = 30_000): GateResult {

@@ -3,7 +3,8 @@
 // instead of the loop living only in run.ts.
 import { runFleet, type FleetCfg } from "./fleet";
 import { runAcceptance, type AcceptResult } from "./accept";
-import { explicitRunnerSpec } from "./runners";
+import { generateValidGate, runGate, type GateResult } from "./gate";
+import { explicitRunnerSpec, resolveRunnerSpec, textRunnerFor } from "./runners";
 import { makeReviewer, reviewBuild } from "./reviewer";
 import type { MemoryAdapter } from "./memory";
 import type { DagNode } from "./dag";
@@ -19,12 +20,42 @@ export interface BuildOutcome {
 
 // runFleet once; if an acceptance spec is given and fails, rework the fleet with the failure as feedback,
 // up to `retries`, then fail-forward. onProgress (via cfg) narrates each rework live.
+// Map a generated gate's execution to the same AcceptResult shape the rework loop already consumes, so the
+// gate is a drop-in for a fixed spec. A malformed gate (crashed, no verdict) is a FAIL, never a silent pass.
+function gateToAccept(g: GateResult): AcceptResult {
+  if (g.malformed)
+    return { pass: false, checks: [{ name: "gate produced a verdict", ok: false, detail: "gate printed no PASS/FAIL — malformed" }], failLines: "- gate malformed (no verdict) — regenerate the gate" };
+  const checks = [
+    ...g.passLines.map((l) => ({ name: l.replace(/^PASS:\s*/i, ""), ok: true })),
+    ...g.failLines.map((l) => ({ name: l.replace(/^FAIL:\s*/i, ""), ok: false })),
+  ];
+  return { pass: g.pass, checks, failLines: g.failLines.join("\n") };
+}
+
 export async function buildWithRework(
   adapter: MemoryAdapter,
   nodes: DagNode[],
   cfg: FleetCfg,
-  opts: { accept?: string; retries: number; projectDir: string },
+  // `gate` (M3) = a request string → an objective check generated per-build and EXECUTED against the files,
+  // preferred over the fixed `accept` spec; falls back to the spec (or unverified) if gate-gen fails.
+  opts: { accept?: string; gate?: string; retries: number; projectDir: string },
 ): Promise<BuildOutcome> {
+  // M3: design the objective gate BEFORE the build (fusion's gate-first discipline) — and on a FRESH SDK
+  // session, before the fleet's heavy concurrent use. generateValidGate validates it red-on-empty. On
+  // failure, fall back to the fixed spec if given, else run UNVERIFIED — surfaced loudly to stderr, never
+  // swallowed silently.
+  let gateScript: string | null = null;
+  if (opts.gate) {
+    try {
+      const arch = textRunnerFor(resolveRunnerSpec("reviewer"), { maxTurns: 4 });
+      const g = await log.time("gate.generate", undefined, () => generateValidGate(opts.gate!, opts.projectDir, arch.run, { tries: 3 }));
+      gateScript = g.gate;
+      cfg.onProgress?.(`◆ objective gate generated (valid on attempt ${g.attempts}) — grading the real files, not the report`);
+    } catch (e) {
+      console.error(`⚠ gate generation failed: ${(e as Error).message}`);
+      cfg.onProgress?.(`⚠ gate generation failed — ${opts.accept ? `falling back to spec '${opts.accept}'` : "build will be UNVERIFIED"}`);
+    }
+  }
   let shared = await log.time("arm.shared", undefined, () => runFleet("shared", adapter, nodes, cfg));
   // Acceptance verdicts and reworks belong on the SAME run's timeline (fleet events live under shared.runId)
   // — a replay must show the whole build→verify→rework story, not stop at the last worker finding.
@@ -32,8 +63,11 @@ export async function buildWithRework(
     adapter.recordEvent &&
     makeEmitter({ adapter, runId: shared.runId, project: cfg.project, onEvent: cfg.onProgress ? (_k, _a, human) => cfg.onProgress!(human) : undefined })(kind, actor, body);
   const acceptEmit = (kind: string, body: string) => emitOn(kind, "acceptance", body);
-  let acc: AcceptResult | undefined = opts.accept ? runAcceptance(opts.projectDir, opts.accept) : undefined;
-  if (acc) acceptEmit(acc.pass ? "finding" : "repair", acc.pass ? `acceptance PASS (${opts.accept})` : `acceptance FAILED (${opts.accept}): ${acc.failLines.replace(/\n/g, "; ").slice(0, 200)}`);
+  const verify = (): AcceptResult | undefined =>
+    gateScript ? gateToAccept(runGate(gateScript, opts.projectDir)) : opts.accept ? runAcceptance(opts.projectDir, opts.accept) : undefined;
+  const label = gateScript ? "gate" : opts.accept;
+  let acc: AcceptResult | undefined = verify();
+  if (acc) acceptEmit(acc.pass ? "finding" : "repair", acc.pass ? `acceptance PASS (${label})` : `acceptance FAILED (${label}): ${acc.failLines.replace(/\n/g, "; ").slice(0, 200)}`);
   const firstFail = acc && !acc.pass ? acc.failLines : ""; // capture attempt #1's miss before rework overwrites acc
 
   // M5: after acceptance is green (or absent), an EXPLICITLY configured reviewer hunts the defects the
@@ -65,8 +99,8 @@ export async function buildWithRework(
       : `\n\nA REVIEWER found concrete defects in the previous attempt:\n${failText}\nRead the existing files and FIX exactly these defects; do not rewrite files that already work.`;
     const reworkNodes = nodes.map((n) => ({ ...n, question: n.question + fb }));
     shared = await log.time("arm.shared", `rework${attempts}`, () => runFleet("shared", adapter, reworkNodes, cfg));
-    acc = opts.accept ? runAcceptance(opts.projectDir, opts.accept) : undefined;
-    if (acc) acceptEmit(acc.pass ? "finding" : "repair", acc.pass ? `acceptance PASS after rework ${attempts} (${opts.accept})` : `acceptance still FAILING after rework ${attempts}: ${acc.failLines.replace(/\n/g, "; ").slice(0, 200)}`);
+    acc = verify();
+    if (acc) acceptEmit(acc.pass ? "finding" : "repair", acc.pass ? `acceptance PASS after rework ${attempts} (${label})` : `acceptance still FAILING after rework ${attempts}: ${acc.failLines.replace(/\n/g, "; ").slice(0, 200)}`);
     defects = await reviewIfGreen();
   }
   return { shared, acc, attempts, firstFail };
